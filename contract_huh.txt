@@ -1,11 +1,8 @@
 EX-10.12 7 ea023623901ex10-12_dthouse.htm REGISTRATION RIGHTS AGREEMENT, DATED APRIL 18, 2025, BY AND BETWEEN DT HOUSE LIMITED AND THE INVESTORS IDENTIFIED ON THE SIGNATURE PAGES THERETO
 Exhibit 10.12
 
- 
-
 REGISTRATION RIGHTS AGREEMENT
 
- 
 
 This Registration Rights Agreement (this “Agreement”) is made and entered into as of April 18, 2025 among DT House Ltd, incorporated under the laws of the Cayman Islands (the “Company”), and the parties identified on Schedule A hereto (collectively, the “Investors” and, each individually, an “Investor”).
 
@@ -350,3 +347,4 @@ IN WITNESS WHEREOF, the parties hereto have executed this Agreement on the date 
 11
 
  
+
