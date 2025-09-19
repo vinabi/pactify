@@ -1,0 +1,352 @@
+EX-10.12 7 ea023623901ex10-12_dthouse.htm REGISTRATION RIGHTS AGREEMENT, DATED APRIL 18, 2025, BY AND BETWEEN DT HOUSE LIMITED AND THE INVESTORS IDENTIFIED ON THE SIGNATURE PAGES THERETO
+Exhibit 10.12
+
+ 
+
+REGISTRATION RIGHTS AGREEMENT
+
+ 
+
+This Registration Rights Agreement (this “Agreement”) is made and entered into as of April 18, 2025 among DT House Ltd, incorporated under the laws of the Cayman Islands (the “Company”), and the parties identified on Schedule A hereto (collectively, the “Investors” and, each individually, an “Investor”).
+
+ 
+
+WHEREAS, the Investors are parties to the Stock Sale and Purchase Agreement, dated as of September 3, 2024 and dated as of February 10, 2025 (the “Purchase Agreements”), pursuant to which the Investor each individually had purchased no more than 5% of Common Stocks of the Company; and
+
+ 
+
+WHEREAS, in connection with the consummation of the transactions contemplated by the Purchase Agreements and pursuant to the terms of the Purchase Agreements, the parties hereto desire to enter into this Agreement in order to grant certain registration rights to the Investors as set forth below.
+
+ 
+
+NOW, THEREFORE, in consideration of the foregoing and the mutual and dependent covenants hereinafter set forth, the parties hereto agree as follows:
+
+ 
+
+1. Defined Terms. As used in this Agreement, the following terms shall have the following meanings:
+
+ 
+
+“Affiliate” of a Person means any other Person that directly, or indirectly through one or more intermediaries, controls or is controlled by, or is under common control with, such Person. The term “control” (including the terms “controlling”, “controlled by” and “under common control with”) means the possession, direct or indirect, of the power to direct or cause the direction of the management and policies of a Person, whether through the ownership of voting securities, by contract, or otherwise.
+
+ 
+
+“Agreement” has the meaning set forth in the preamble.
+
+ 
+
+“Board” means the board of directors (or any successor governing body) of the Company.
+
+ 
+
+“Commission” means the Securities and Exchange Commission or any other federal agency administering the Securities Act and the Exchange Act at the time.
+
+ 
+
+“Common Stock” means the common stock, US$50,000 divided into 50,000,000 shares of a par value of US$0.001 each, of the Company and any other shares of stock issued or issuable with respect thereto (whether by way of a stock dividend or stock split or in exchange for or upon conversion of such shares or otherwise in connection with a combination of shares, distribution, recapitalization, merger, consolidation, other corporate reorganization or other similar event with respect to the Common Stock).
+
+ 
+
+“Company” has the meaning set forth in the preamble and includes the Company’s successors by merger, acquisition, reorganization or otherwise.
+
+ 
+
+ 
+
+ 
+
+ 
+
+“Demand Registration” has the meaning set forth in Section ‎2(b).
+
+ 
+
+“DTCDRS” has the meaning set forth in Section ‎3(i).
+
+ 
+
+“Exchange Act” means the Securities Exchange Act of 1934, as amended, and the rules and regulations promulgated thereunder.
+
+ 
+
+“Governmental Authority” means any federal, state, local or foreign government or political subdivision thereof, or any agency or instrumentality of such government or political subdivision, or any self-regulated organization or other non-governmental regulatory authority or quasi-governmental authority (to the extent that the rules, regulations or orders of such organization or authority have the force of law), or any arbitrator, court or tribunal of competent jurisdiction.
+
+ 
+
+“Inspectors” has the meaning set forth in Section ‎3(f).
+
+ 
+
+“Investors” has the meaning set forth in the preamble.
+
+ 
+
+“IPO” means an initial underwritten offering of the Common Stock or any other common equity securities of the Company pursuant to an effective Registration Statement filed under the Securities Act.
+
+ 
+
+“Long-Form Registration” has the meaning set forth in Section ‎2(a).
+
+ 
+
+“Person” means an individual, corporation, partnership, joint venture, limited liability company, Governmental Authority, unincorporated organization, trust, association or other entity.
+
+ 
+
+“Prospectus” means the prospectus or prospectuses included in any Registration Statement (including, without limitation, a prospectus that includes any information previously omitted from a prospectus filed as part of an effective Registration Statement in reliance on Rule 430A under the Securities Act or any successor rule thereto), as amended or supplemented by any prospectus supplement with respect to the terms of the offering of any portion of the Registrable Securities covered by such Registration Statement and by all other amendments and supplements to the prospectus, including post-effective amendments and all material incorporated by reference in such prospectus or prospectuses.
+
+ 
+
+“Purchase Agreements” has the meaning set forth in the recitals.
+
+ 
+
+“Records” has the meaning set forth in Section ‎3(f).
+
+ 
+
+“Registrable Securities” means any shares of Common Stock acquired by the Investors pursuant to the Purchase Agreements and are beneficially owned by the Investors. As to any particular Registrable Securities, such securities shall cease to be Registrable Securities when (i) the Commission has declared a Registration Statement covering such securities effective and such securities have been disposed of pursuant to such effective Registration Statement, (ii) such securities are sold under circumstances in which all of the applicable conditions of Rule 144 under the Securities Act are met, (iii) such securities become eligible for sale pursuant to Rule 144 without volume or manner-of-sale restrictions and without the requirement for the Company to be in compliance with the current public information requirement under Rule 144(c)(1).
+
+ 
+
+2
+
+ 
+
+ 
+
+“Registration Date” means the date on which the Company becomes subject to Section 13(a) or Section 15(d) of the Exchange Act.
+
+ 
+
+“Registration Statement” means any registration statement of the Company, including the Prospectus, amendments and supplements to such registration statement, including post-effective amendments, all exhibits and all material incorporated by reference in such registration statement.
+
+ 
+
+“Rule 144” means Rule 144 under the Securities Act or any successor rule thereto.
+
+ 
+
+“Securities Act” means the Securities Act of 1933, as amended, and the rules and regulations promulgated thereunder.
+
+ 
+
+“Selling Expenses” means all underwriting discounts, selling commissions and stock transfer taxes applicable to the sale of Registrable Securities, and fees and disbursements of counsel for any holder of Registrable Securities, except for the fees and disbursements of counsel for the holders of Registrable Securities required to be paid by the Company pursuant to Section ‎4.
+
+ 
+
+“Short-Form Registration” has the meaning set forth in Section ‎2(b).
+
+ 
+
+2. Demand Registration.
+
+ 
+
+(a) Provided a successful IPO of the Company, at any time after the earlier of 30 days after the date of Registration Date or 120 days after the date of this Agreement, the Investors may request registration under the Securities Act of all or any portion of their Registrable Securities pursuant to a Registration Statement on Form F-1 or any successor form thereto (each, a “Long-Form Registration”). Each request for a Long-Form Registration shall specify the number of Registrable Securities requested to be included in the Long-Form Registration. Upon receipt of any such request, the Company shall promptly (but in no event later than 5 business days following receipt thereof) deliver notice of such request to all other holders of Registrable Securities who shall then have 5 business days from the date such notice is given to notify the Company in writing of their desire to be included in such registration. The Company shall prepare and file with (or confidentially submit to) the Commission a Registration Statement on Form F-1 or any successor form thereto covering all of the Registrable Securities that the holders thereof have requested to be included in such Long-Form Registration within 30 calendar days after the date on which the initial request is given and shall use its best efforts to cause such Registration Statement to be declared effective by the Commission as soon as practicable thereafter. The Company shall not be required to effect a Long-Form Registration more than two times for the holders of Registrable Securities as a group.
+
+ 
+
+3
+
+ 
+
+ 
+
+(b) After the Registration Date, the Company shall use its best efforts to qualify and remain qualified to register the offer and sale of securities under the Securities Act pursuant to a Registration Statement on Form S-3 or any successor form thereto. At such time as the Company shall have qualified for the use of a Registration Statement on Form S-3 or any successor form thereto, the holders of Registrable Securities shall have the right to request an unlimited number of registrations under the Securities Act of all or any portion of their Registrable Securities pursuant to a Registration Statement on Form S-3 or any similar short-form Registration Statement (each, a “Short-Form Registration” and, together/collectively with each Long-Form Registration, a “Demand Registration”). Each request for a Short-Form Registration shall specify the number of Registrable Securities requested to be included in the Short-Form Registration. Upon receipt of any such request, the Company shall promptly (but in no event later than 5 business days following receipt thereof) deliver notice of such request to all other holders of Registrable Securities who shall then have 5 business days from the date such notice is given to notify the Company in writing of their desire to be included in such registration. The Company shall prepare and file with (or confidentially submit to) the Commission a Registration Statement on Form S-3 or any successor form thereto covering all of the Registrable Securities that the holders thereof have requested to be included in such Short-Form Registration within 30 calendar days after the date on which the initial request is given and shall use its best efforts to cause such Registration Statement to be declared effective by the Commission as soon as practicable thereafter.
+
+ 
+
+3. Registration Procedures. If and whenever the holders of Registrable Securities request that the offer and sale of any Registrable Securities be registered under the Securities Act pursuant to the provisions of this Agreement, the Company shall use its best efforts to effect the registration of the offer and sale of such Registrable Securities under the Securities Act in accordance with the intended method of disposition thereof, and pursuant thereto the Company shall as soon as practicable and as applicable:
+
+ 
+
+(a) subject to Section ‎2(a) and Section ‎2(b), prepare and file with the Commission a Registration Statement covering such Registrable Securities and use its best efforts to cause such Registration Statement to be declared effective;
+
+ 
+
+(b) prepare and file with the Commission such amendments, post-effective amendments and supplements to such Registration Statement and the Prospectus used in connection therewith as may be necessary to keep such Registration Statement effective for a period of not less than 30 calendar days, or if earlier, until all of such Registrable Securities have been disposed of and to comply with the provisions of the Securities Act with respect to the disposition of such Registrable Securities in accordance with the intended methods of disposition set forth in such Registration Statement;
+
+ 
+
+4
+
+ 
+
+ 
+
+(c) notify each selling holder of Registrable Securities, promptly after the Company receives notice thereof, of the time when such Registration Statement has been declared effective or a supplement to any Prospectus forming a part of such Registration Statement has been filed with the Commission;
+
+ 
+
+(d) furnish to each selling holder of Registrable Securities such number of copies of the Prospectus included in such Registration Statement (including each preliminary Prospectus) and any supplement thereto;
+
+ 
+
+(e) use its best efforts to register or qualify such Registrable Securities under such other securities or “blue sky” laws of such jurisdictions as any selling holder reasonably requests and do any and all other acts and things which may be reasonably necessary or advisable to enable such holders to consummate the disposition in such jurisdictions of the Registrable Securities owned by such holders;
+
+ 
+
+(f)  make available for inspection by any selling holder of Registrable Securities, any underwriter participating in any disposition pursuant to such Registration Statement and any attorney, accountant or other agent retained by any such holder or underwriter (collectively, the “Inspectors”), all financial and other records, pertinent corporate documents and properties of the Company (collectively, the “Records”), and cause the Company’s officers, directors and employees to supply all information reasonably requested by any such Inspector in connection with such Registration Statement;
+
+ 
+
+(g) provide a transfer agent and registrar (which may be the same entity) for all such Registrable Securities not later than the effective date of such registration;
+
+ 
+
+(h) use its best efforts to cause such Registrable Securities to be listed on each securities exchange on which the Common Stock is then listed;
+
+ 
+
+(i) cooperate with the holders of the Registrable Securities to facilitate the timely preparation and delivery of certificates representing the Registrable Securities to be sold pursuant to such Registration Statement or Rule 144 free of any restrictive legends and representing such number of shares of Common Stock and registered in such names as the holders of the Registrable Securities may reasonably request a reasonable period of time prior to sales of Registrable Securities pursuant to such Registration Statement or Rule 144; provided, that the Company may satisfy its obligations hereunder without issuing physical stock certificates through the use of The Depository Trust Company’s Direct Registration System (the “DTCDRS”);
+
+ 
+
+5
+
+ 
+
+ 
+
+(j) not later than the effective date of such Registration Statement, provide a CUSIP number for all Registrable Securities and provide the applicable transfer agent with printed certificates for the Registrable Securities which are in a form eligible for deposit with The Depository Trust Company; provided, that the Company may satisfy its obligations hereunder without issuing physical stock certificates through the use of the DTCDRS; and
+
+ 
+
+(k) take no direct or indirect action prohibited by Regulation M under the Exchange Act; provided, that, to the extent that any prohibition is applicable to the Company, the Company will take all reasonable action to make-any such prohibition inapplicable.
+
+ 
+
+4. Expenses. All expenses (other than Selling Expenses) incurred by the Company in complying with its obligations pursuant to this Agreement and in connection with the registration and disposition of Registrable Securities shall be paid by the Company, including, without limitation, all (i) registration and filing fees (including, without limitation, any fees relating to filings required to be made with, or the listing of any Registrable Securities on, any securities exchange or over-the-counter trading market on which the Registrable Securities are listed or quoted); (ii) underwriting expenses (other than fees, commissions or discounts); (iii) expenses of any audits incident to or required by any such registration; (iv) fees and expenses of complying with securities and “blue sky” laws (including, without limitation, fees and disbursements of counsel for the Company in connection with “blue sky” qualifications or exemptions of the Registrable Securities); (v) printing expenses; (vi) messenger, telephone and delivery expenses; (vii) fees and expenses of the Company’s counsel and accountants; and (viii) Financial Industry Regulatory Authority, Inc. filing fees (if any). In addition, the Company shall be responsible for all of its internal expenses incurred in connection with the consummation of the transactions contemplated by this Agreement (including, without limitation, all salaries and expenses of its officers and employees performing legal or accounting duties) and the expense of any annual audits. All Selling Expenses relating to the offer and sale of Registrable Securities registered under the Securities Act pursuant to this Agreement shall be borne and paid by the holders of such Registrable Securities, in proportion to the number of Registrable Securities included in such registration for each such holder.
+
+ 
+
+5. Indemnification. The Company shall indemnify and hold harmless, to the fullest extent permitted by law, each holder of Registrable Securities, such holder’s officers, directors, managers, members, partners, stockholders and Affiliates, each underwriter, broker or any other Person acting on behalf of such holder of Registrable Securities and each other Controlling Person, if any, who controls any of the foregoing Persons, against all losses, claims, actions, damages, liabilities and expenses, joint or several, to which any of the foregoing Persons may become subject under the Securities Act or otherwise, insofar as such losses, claims, actions, damages, liabilities or expenses arise out of or are based upon any untrue or alleged untrue statement of a material fact contained in any Registration Statement, Prospectus, preliminary Prospectus, free writing prospectus (as defined in Rule 405 under the Securities Act or any successor rule thereto) or any amendment thereof or supplement thereto or any omission or alleged omission of a material fact required to be stated therein or necessary to make the statements therein (in the case of a Prospectus, preliminary Prospectus or free writing prospectus, in light of the circumstances under which they were made) not misleading; and shall reimburse such Persons for any legal or other expenses reasonably incurred by any of them in connection with investigating or defending any such loss, claim, action, damage or liability, except insofar as the same are caused by or contained in any information furnished in writing to the Company by such holder expressly for use therein or by such holder’s failure to deliver a copy of the Registration Statement, Prospectus, preliminary Prospectus, free writing prospectus (as defined in Rule 405 under the Securities Act or any successor rule thereto) or any amendments or supplements thereto (if the same was required by applicable law to be so delivered) after the Company has furnished such holder with a sufficient number of copies of the same prior to any written confirmation of the sale of Registrable Securities. This indemnity shall be in addition to any liability the Company may otherwise have.
+
+ 
+
+6
+
+ 
+
+ 
+
+6. Rule 144 Compliance. With a view to making available to the holders of Registrable Securities the benefits of Rule 144 and any other rule or regulation of the Commission that may at any time permit a holder to sell securities of the Company to the public without registration, the Company shall:
+
+ 
+
+(a) make and keep public information available, as those terms are understood and defined in Rule 144, at all times after the Registration Date;
+
+ 
+
+(b) use best efforts to file with the Commission in a timely manner all reports and other documents required of the Company under the Securities Act and the Exchange Act, at any time after the Registration Date; and
+
+ 
+
+(c) furnish to any holder so long as the holder owns Registrable Securities, promptly upon request, a written statement by the Company as to its compliance with the reporting requirements of Rule 144 and of the Securities Act and the Exchange Act, a copy of the most recent annual or quarterly report of the Company, and such other reports and documents so filed or furnished by the Company as such holder may reasonably request in connection with the sale of Registrable Securities without registration.
+
+ 
+
+7. Termination. This Agreement shall terminate and be of no further force or effect when there shall no longer be any Registrable Securities outstanding.
+
+ 
+
+8. Notices. All notices, requests, consents, claims, demands, waivers and other communications hereunder shall be in writing and shall be deemed to have been given on the date sent by e-mail of a PDF document (with confirmation of transmission) if sent during normal business hours of the recipient, and on the next Business Day if sent after normal business hours of the recipient.
+
+ 
+
+If to the Company:	 	DT House Ltd
+ 	 	E-mail: elvin.zhang@dt-house.com
+ 	 	Attention: Elvin Qiting Zhang, CFO
+ 
+
+7
+
+ 
+
+ 
+
+If to any Investor, to such Investor’s address as set forth in the register of stockholders maintained by the Company.
+
+ 
+
+9. Entire Agreement. This Agreement, together with the Purchase Agreements and any related exhibits and schedules thereto, constitutes the sole and entire agreement of the parties to this Agreement with respect to the subject matter contained herein, and supersedes all prior and contemporaneous understandings and agreements, both written and oral, with respect to such subject matter. Notwithstanding the foregoing, in the event of any conflict between the terms and provisions of this Agreement and those of the Purchase Agreements, the terms and conditions of this Agreement shall control.
+
+ 
+
+10. Severability. If any term or provision of this Agreement is invalid, illegal or unenforceable in any jurisdiction, such invalidity, illegality or unenforceability shall not affect any other term or provision of this Agreement or invalidate or render unenforceable such term or provision in any other jurisdiction. Upon such determination that any term or other provision is invalid, illegal or unenforceable, the parties hereto shall negotiate in good faith to modify this Agreement so as to effect the original intent of the parties as closely as possible in a mutually acceptable manner in order that the transactions contemplated hereby be consummated as originally contemplated to the greatest extent possible.
+
+ 
+
+11. Remedies. Each holder of Registrable Securities, in addition to being entitled to exercise all rights granted by law, including recovery of damages, shall be entitled to specific performance of its rights under this Agreement. The Company acknowledges that monetary damages would not be adequate compensation for any loss incurred by reason of a breach by it of the provisions of this Agreement and the Company hereby agrees to waive the defense in any action for specific performance that a remedy at law would be adequate.
+
+ 
+
+12. Governing Law: Submission to Jurisdiction. This Agreement shall be governed by and construed in accordance with the internal laws of the State of New York (whether of the State of New York or any other jurisdiction). Any legal suit, action or proceeding arising out of or based upon this Agreement or the transactions contemplated hereby may be instituted in the federal courts of the United States or the courts of the State of New York, and each party irrevocably submits to the exclusive jurisdiction of such courts in any such suit, action or proceeding. Service of process, summons, notice or other document by mail to such party’s address set forth herein shall be effective service of process for any suit, action or other proceeding brought in any such court. The parties irrevocably and unconditionally waive any objection to the laying of venue of any suit, action or any proceeding in such courts and irrevocably waive and agree not to plead or claim in any such court that any such suit, action or proceeding brought in any such court has been brought in an inconvenient forum.
+
+ 
+
+13. Waiver of Jury Trial. Each party acknowledges and agrees that any controversy which may arise under this Agreement is likely to involve complicated and difficult issues and, therefore, each such party irrevocably and unconditionally waives any right it may have to a trial by jury in respect of any legal action arising out of or relating to this Agreement or the transactions contemplated hereby. Each party to this Agreement certifies and acknowledges that (a) no representative of any other party has represented, expressly or otherwise, that such other party would not seek to enforce the foregoing waiver in the event of a legal action, (b) such party has considered the implications of this waiver, (c) such party makes this waiver voluntarily, and (d) such party has been induced to enter into this Agreement by, among other things, the mutual waivers and certifications in this Section ‎13.
+
+ 
+
+[SIGNATURE PAGE FOLLOWS]
+
+ 
+
+8
+
+ 
+
+ 
+
+IN WITNESS WHEREOF, the parties hereto have executed this Agreement on the date first written above.
+
+ 
+
+ 	DT House Ltd
+ 	 
+ 	By	    
+ 	Name: 	
+ 	Title:	 
+ 
+
+9
+
+ 
+
+ 
+
+IN WITNESS WHEREOF, the parties hereto have executed this Agreement on the date first written above.
+
+ 
+
+ 	Ristuccia Limited
+ 	 	 
+ 	By	 
+ 	Name: 	Xue Qin
+ 	Title:	Director
+ 
+
+10
+
+ 
+
+ 
+
+IN WITNESS WHEREOF, the parties hereto have executed this Agreement on the date first written above.
+
+ 
+
+ 	Bright Nova Development Limited
+ 	 	 
+ 	By	 
+ 	Name: 	Koly Chan
+ 	Title:	Director
+ 
+
+ 
+
+11
+
+ 
