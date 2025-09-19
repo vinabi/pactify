@@ -1,0 +1,24 @@
+version: "3.9"
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.api
+    env_file:
+      - ../.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../.chroma:/app/.chroma
+  ui:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.ui
+    env_file:
+      - ../.env
+    environment:
+      - API_URL=http://api:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api
