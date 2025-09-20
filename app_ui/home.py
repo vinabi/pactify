@@ -4,7 +4,7 @@ import requests
 import streamlit as st
 from typing import Dict, Any
 
-API_URL = os.environ.get("API_URL", "http://127.0.0.1:8080")
+API_URL = st.secrets.get("API_URL", os.environ.get("API_URL", "http://127.0.0.1:8080"))
 
 st.set_page_config(page_title="Contract Risk Analyzer", layout="wide")
 st.title("Contract Risk Analyzer")
