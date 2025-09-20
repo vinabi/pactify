@@ -1,34 +1,39 @@
+# api/settings.py
+from __future__ import annotations
+import json
+import os
 from pydantic_settings import BaseSettings
-from pydantic import Field
-from typing import List
+
+def _trim(name: str, default: str = "") -> str:
+    v = os.getenv(name, default)
+    return v.strip() if isinstance(v, str) else v
+
+def _parse_list(name: str, default: list[str] | None = None) -> list[str]:
+    raw = os.getenv(name)
+    if not raw:
+        return default or []
+    raw = raw.strip()
+    if raw.startswith("["):
+        try:
+            return json.loads(raw)
+        except Exception:
+            pass
+    # comma separated
+    return [x.strip() for x in raw.split(",") if x.strip()]
 
 class Settings(BaseSettings):
-    # Groq (primary)
-    groq_api_key: str = Field(default="", alias="GROQ_API_KEY")
-    groq_model: str = Field(default="llama-3.3-70b-versatile", alias="GROQ_MODEL")
-    groq_temperature: float = Field(default=0.2, alias="GROQ_TEMPERATURE")
+    groq_api_key: str = _trim("GROQ_API_KEY")
+    groq_model: str = _trim("GROQ_MODEL", "llama-3.1-70b-versatile")
+    groq_temperature: float = float(_trim("GROQ_TEMPERATURE", "0.2") or 0.2)
 
-    # Optional OpenAI fallback
-    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
-    openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
-    openai_temperature: float = Field(default=0.2, alias="OPENAI_TEMPERATURE")
+    sendgrid_api_key: str = _trim("SENDGRID_API_KEY")
+    email_sender: str = _trim("EMAIL_SENDER")
 
-    # App
-    api_host: str = Field(default="0.0.0.0", alias="API_HOST")
-    api_port: int = Field(default=8000, alias="API_PORT")
-    cors_allow_origins: List[str] = Field(default_factory=lambda: ["*"], alias="CORS_ALLOW_ORIGINS")
-    max_file_mb: int = Field(default=10, alias="MAX_FILE_MB")
-    max_clauses: int = Field(default=300, alias="MAX_CLAUSES")
+    chroma_dir: str = _trim("CHROMA_DIR", ".chroma")
 
-    # Chroma
-    chroma_dir: str = Field(default=".chroma", alias="CHROMA_DIR")
+    cors_allow_origins: list[str] = _parse_list("CORS_ALLOW_ORIGINS", ["*"])
 
-    # SendGrid
-    sendgrid_api_key: str = Field(default="", alias="SENDGRID_API_KEY")
-    email_sender: str = Field(default="", alias="EMAIL_SENDER")
-
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    max_file_mb: int = int(_trim("MAX_FILE_MB", "10"))
+    max_clauses: int = int(_trim("MAX_CLAUSES", "300"))
 
 settings = Settings()
