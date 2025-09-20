@@ -3,82 +3,83 @@ from __future__ import annotations
 import re
 from typing import Tuple, Dict, Any, List
 
-# Core clause/term lexicons
-CLAUSE_HEADINGS = [
-    "confidentiality", "non-disclosure", "nda", "non disclosure",
-    "governing law", "jurisdiction", "limitation of liability",
-    "indemnification", "warranty", "warranties",
-    "termination", "term and termination",
-    "payment terms", "fees", "consideration",
-    "intellectual property", "ip ownership", "license",
-    "force majeure", "assignment", "entire agreement",
-    "severability", "arbitration", "dispute resolution", "notice",
+# ---------- stronger contract-likeness signals ----------
+POS_PATTERNS = [
+    r"\b(non-?disclosure|nda)\b",
+    r"\b(master (services?|service) agreement|msa)\b",
+    r"\b(statement of work|sow)\b",
+    r"\b(terms?\s+and\s+conditions|t&c)\b",
+    r"\b(confidentiality|proprietary information)\b",
+    r"\b(indemnif(?:y|ication))\b",
+    r"\b(limit(?:ation)? of liability|liability cap)\b",
+    r"\b(governing law|venue|jurisdiction)\b",
+    r"\b(term(?:ination)?|renewal)\b",
+    r"\b(intellectual property|ip ownership|work[- ]?made[- ]?for[- ]?hire)\b",
+    r"\b(payment|fees|invoice)\b",
+]
+NEG_PATTERNS = [
+    r"\bblog\b", r"\bpress release\b", r"\bsyllabus\b", r"\bhow to\b", r"\bnewsletter\b",
+    r"\bprivacy policy\b", r"\bcookie policy\b"
 ]
 
-CONTRACT_SIGNALS = [
-    # formation / signature
-    r"\b(this\s+agreement|this\s+contract)\b",
-    r"\bbetween\s+.+\s+and\s+.+\b",
-    r"\b(the\s+parties|party\s+a|party\s+b)\b",
-    r"\b(in witness whereof|signed\s+by|signatory|counterpart[s]?)\b",
-    # elements of contract
-    r"\boffer\b", r"\bacceptance\b", r"\bconsideration\b", r"\bcapacity\b", r"\bintent(ion)?\b",
-    # common forms
-    r"\bnon[-\s]?disclosure\s+agreement\b|\bnda\b",
-    r"\bmaster\s+services?\s+agreement\b|\bmsa\b",
-    r"\bstatement\s+of\s+work\b|\bsow\b",
-    r"\blease\s+agreement\b|\bpurchase\s+agreement\b|\bsales?\s+contract\b",
-]
-
-NON_CONTRACT_SIGNALS = [
-    r"\bblog\b|\bnewsletter\b|\bpress release\b|\bterms of use\b",
-    r"\bprivacy policy\b|\bfaq(s)?\b|\btutorial\b|\bhow to\b",
-]
-
-HEADING_RE = re.compile(r"^\s*\d+(\.\d+)*\s+([A-Z][A-Za-z \-/&]{2,})\s*$", re.M)
-
-def _count(patterns: List[str], text: str) -> int:
-    return sum(1 for p in patterns if re.search(p, text, flags=re.I))
-
-def looks_like_contract_v3(text: str) -> Tuple[bool, Dict[str, Any]]:
-    """Heuristic contract detector with transparent scoring."""
-    t = text if isinstance(text, str) else ""
-
-    # Normalize
-    flat = re.sub(r"\s+", " ", t).strip()
-
-    # positive signals
-    headings = [m.group(2).strip().lower() for m in HEADING_RE.finditer(t)]
-    heading_hits = sum(any(h in hh for hh in headings) for h in CLAUSE_HEADINGS)
-    signal_hits = _count(CONTRACT_SIGNALS, flat)
-
-    # negative signals
-    neg_hits = _count(NON_CONTRACT_SIGNALS, flat)
-
-    # weighting
+def looks_like_contract_v2(text: str) -> Tuple[bool, Dict[str, Any]]:
+    t = " ".join((text or "").split())
+    pos = [p for p in POS_PATTERNS if re.search(p, t, re.I)]
+    neg = [n for n in NEG_PATTERNS if re.search(n, t, re.I)]
+    words = len(t.split())
+    has_sections = bool(re.search(r"\b(section|clause|article)\b", t, re.I))
+    has_sign = bool(re.search(r"\bsign(?:ed|ature)\b", t, re.I))
     score = 0
-    score += 2 * min(heading_hits, 8)          # up to +16
-    score += 3 * min(signal_hits, 6)           # up to +18
-    score -= 3 * min(neg_hits, 3)              # down to -9
+    score += 3 * min(len(pos), 7)
+    score += 2 if has_sections else 0
+    score += 1 if has_sign else 0
+    score += 2 if words > 250 else 0
+    score -= 3 * min(len(neg), 3)
+    return (score >= 8, {"score": score, "positives": pos, "negatives": neg})
 
-    # boost if explicit signatory block or “the Parties agree”
-    if re.search(r"\b(the parties agree|in witness whereof)\b", flat, re.I):
-        score += 6
+# ---------- deterministic red-flags ----------
+RED_FLAGS: List[Dict[str, Any]] = [
+    {
+        "label": "Unlimited liability (includes indirect/consequential/punitive; no cap/limit)",
+        "severity": "high",
+        "pattern": r"\b(no|without)\s+(?:any\s+)?(?:limit|cap)\b|(?:all|any)\s+damages(?:,|\s)+(?:including\s+)?(?:consequential|special|punitive|indirect)",
+    },
+    {
+        "label": "Unilateral indemnity favoring other party",
+        "severity": "high",
+        "pattern": r"\bindemnif(?:y|ication)\b.{0,120}\bhold harmless\b.{0,120}\b(?:provider|client|company|contractor)\b",
+    },
+    {
+        "label": "Over-broad IP assignment / work-made-for-hire",
+        "severity": "medium",
+        "pattern": r"\b(all|any)\s+(?:inventions|developments|works|ip)\b.{0,40}\b(assign|belong)\b|work[- ]?made[- ]?for[- ]?hire",
+    },
+    {
+        "label": "Auto-renewal without clear notice",
+        "severity": "medium",
+        "pattern": r"\b(auto[- ]?renew|automatic(?:ally)?\s+renew)s?\b",
+    },
+    {
+        "label": "No termination for convenience / unilateral termination only",
+        "severity": "medium",
+        "pattern": r"\bterminate\b.{0,40}\b(?:only|sole(?:ly)?)\b|\bno\s+right\s+to\s+terminate\b",
+    },
+    {
+        "label": "Missing liability cap clause",
+        "severity": "medium",
+        "pattern": r"(?!.*limit(?:ation)?\s+of\s+liability)",
+        "needs_absence_check": True,
+    },
+]
 
-    # decision thresholds
-    is_contract = score >= 10
-
-    details = {
-        "score": score,
-        "positives": [
-            f"{heading_hits} clause headings matched",
-            f"{signal_hits} contract signals matched",
-        ],
-        "negatives": [f"{neg_hits} non-contract signals matched"] if neg_hits else [],
-        "example_headings": headings[:8],
-    }
-    return is_contract, details
-
-# Backwards-compat alias used by your API
-def looks_like_contract_v2(text: str):
-    return looks_like_contract_v3(text)
+def find_red_flags(text: str) -> List[Dict[str, Any]]:
+    t = " ".join((text or "").split())
+    hits: List[Dict[str, Any]] = []
+    for rf in RED_FLAGS:
+        if rf.get("needs_absence_check"):
+            if not re.search(r"\blimit(?:ation)?\s+of\s+liability|liability\s+cap", t, re.I):
+                hits.append({"label": rf["label"], "severity": rf["severity"]})
+        else:
+            if re.search(rf["pattern"], t, re.I | re.S):
+                hits.append({"label": rf["label"], "severity": rf["severity"], "pattern": rf["pattern"]})
+    return hits
