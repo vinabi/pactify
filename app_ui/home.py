@@ -31,7 +31,7 @@ if uploaded:
 if uploaded:
     st.session_state["last_file_name"] = uploaded.name
     st.session_state["last_file_bytes"] = uploaded.getvalue()
-    guessed = uploaded_file.type or ""
+    guessed = uploaded.type or ""
     if not guessed or guessed == "application/octet-stream":
         if uploaded.name.lower().endswith(".pdf"):
             guessed = "application/pdf"
