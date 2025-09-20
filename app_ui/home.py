@@ -1,13 +1,12 @@
-# app_ui/home.py
-import os
-import requests
+# app_ui/home.py  — minimal changes to keep Override visible
+import os, requests, json
 import streamlit as st
 from typing import Dict, Any
 
 API_URL = st.secrets.get("API_URL", os.environ.get("API_URL", "http://127.0.0.1:8080"))
 
 st.set_page_config(page_title="Contract Risk Analyzer", layout="wide")
-st.title("Contract Risk Analyzer")
+st.title("⚖️ Contract Risk Analyzer")
 st.caption("Upload a contract → detect risks → propose redlines → summarize")
 
 # ----- sidebar -----
@@ -17,79 +16,101 @@ with st.sidebar:
     jurisdiction = st.selectbox("Jurisdiction", ["General", "US", "EU", "UK", "PK", "AE"])
     top_k_precedents = st.slider("Precedent grounding (k)", 0, 3, 0)
     st.divider()
-    st.markdown("**Backend**:")
+    st.markdown("**Backend:**")
     st.code(API_URL)
 
 # ----- file upload (persist in session so buttons can reuse) -----
 uploaded_file = st.file_uploader("Upload PDF/DOCX/TXT", type=["pdf", "docx", "txt"], accept_multiple_files=False)
 if uploaded_file:
-    # persist
     st.session_state["last_file_name"] = uploaded_file.name
     st.session_state["last_file_bytes"] = uploaded_file.getvalue()
     st.session_state["last_file_type"] = uploaded_file.type or "application/octet-stream"
 
-# recipient email input (for SendGrid)
+# recipient email input
 to_email = st.text_input("Recipient email", value=st.session_state.get("email_input", "yourgmail@gmail.com"), key="email_input")
 
-# ----- analyze action: call API and store result in session -----
-if st.button("Analyze", use_container_width=True, type="primary"):
-    if "last_file_bytes" not in st.session_state:
-        st.error("Please upload a file.")
-        st.stop()
+def _current_file_triplet():
+    return (
+        st.session_state.get("last_file_name"),
+        st.session_state.get("last_file_bytes"),
+        st.session_state.get("last_file_type", "application/octet-stream"),
+    )
 
-    with st.spinner("Analyzing... this can take 10–40s for longer files"):
-        files = {"file": (st.session_state["last_file_name"], st.session_state["last_file_bytes"], st.session_state["last_file_type"])}
-        params = {
-            "strict_mode": str(strict_mode).lower(),
-            "jurisdiction": jurisdiction,
-            "top_k_precedents": int(top_k_precedents),
-        }
-        try:
-            r = requests.post(f"{API_URL}/analyze", params=params, files=files, timeout=600)
-            r.raise_for_status()
-            st.session_state["analysis"] = r.json()
-        except requests.HTTPError as e:
-            # 422 contract gate or other HTTP errors
+def _render_gate_panel(gate_detail: Dict[str, Any]):
+    # Pretty message + keep the override button visible
+    msg = gate_detail.get("message", "This file doesn’t look like a contract.")
+    score = gate_detail.get("score")
+    st.error(f"{msg} (score {score})")
+    cols = st.columns(2)
+    with cols[0]:
+        positives = gate_detail.get("positives") or []
+        if positives:
+            st.info("**Detected contract-like signals:**\n- " + "\n- ".join(positives))
+    with cols[1]:
+        negatives = gate_detail.get("negatives") or []
+        if negatives:
+            st.warning("**Detected non-contract signals:**\n- " + "\n- ".join(negatives))
+
+    # Always show override button here
+    if st.button("Override and analyze anyway", key="override_btn", use_container_width=True):
+        fname, fbytes, ftype = _current_file_triplet()
+        if not fbytes:
+            st.error("Upload a file first")
+            return
+        with st.spinner("Forcing analysis..."):
+            files = {"file": (fname, fbytes, ftype)}
+            params = {
+                "strict_mode": str(st.session_state.get("strict_mode_override", strict_mode)).lower(),
+                "jurisdiction": jurisdiction,
+                "top_k_precedents": int(top_k_precedents),
+                "allow_non_contract": "true",
+            }
+            r2 = requests.post(f"{API_URL}/analyze", params=params, files=files, timeout=120)
             try:
-                dj = r.json().get("detail")
-                if isinstance(dj, dict) and "score" in dj:
-                    st.error(f"{dj.get('message','Rejected')} (score {dj['score']})")
-                    if dj.get("positives"):
-                        st.info("**Detected contract-like signals:**\n- " + "\n- ".join(dj["positives"]))
-                    if dj.get("negatives"):
-                        st.warning("**Detected non-contract signals:**\n- " + "\n- ".join(dj["negatives"]))
-                    st.stop()
-                else:
-                    st.error(dj or str(e))
-                    st.stop()
-            except Exception:
-                st.error(str(e))
-                st.stop()
-        except Exception as e:
-            st.error(f"API error: {e}")
-            st.stop()
+                r2.raise_for_status()
+                st.session_state["analysis"] = r2.json()
+                st.session_state.pop("gate_detail", None)  # clear the gate notice
+                st.rerun()
+            except requests.HTTPError:
+                st.error(f"Backend error {r2.status_code}: {r2.text[:400]}")
+            except Exception as e:
+                st.error(f"Override failed: {e}\nRaw: {r2.text[:400]}")
 
-# allow override button to force analysis of non-contract
-if st.button("Override and analyze anyway"):
-    if "last_file_bytes" not in st.session_state:
+# ----- analyze action -----
+if st.button("Analyze", use_container_width=True, type="primary"):
+    fname, fbytes, ftype = _current_file_triplet()
+    if not fbytes:
         st.error("Please upload a file.")
-        st.stop()
-    with st.spinner("Forcing analysis..."):
-        files = {"file": (st.session_state["last_file_name"], st.session_state["last_file_bytes"], st.session_state["last_file_type"])}
-        params = {
-            "strict_mode": str(strict_mode).lower(),
-            "jurisdiction": jurisdiction,
-            "top_k_precedents": int(top_k_precedents),
-            "allow_non_contract": "true",
-        }
-        r2 = requests.post(f"{API_URL}/analyze", params=params, files=files, timeout=600)
-        try:
-            r2.raise_for_status()
-            st.session_state["analysis"] = r2.json()
-            st.rerun()
-        except Exception as e:
-            st.error(f"Override failed: {e}")
-            st.stop()
+    else:
+        with st.spinner("Analyzing... this can take 10–40s for longer files"):
+            files = {"file": (fname, fbytes, ftype)}
+            params = {
+                "strict_mode": str(strict_mode).lower(),
+                "jurisdiction": jurisdiction,
+                "top_k_precedents": int(top_k_precedents),
+            }
+            r = requests.post(f"{API_URL}/analyze", params=params, files=files, timeout=120)
+            try:
+                r.raise_for_status()
+                st.session_state["analysis"] = r.json()
+                st.session_state.pop("gate_detail", None)
+            except requests.HTTPError:
+                # try to parse gate (422) detail
+                try:
+                    dj = r.json().get("detail")
+                except Exception:
+                    dj = None
+                if isinstance(dj, dict) and "score" in dj:
+                    st.session_state["gate_detail"] = dj
+                    st.session_state.pop("analysis", None)
+                else:
+                    st.error(f"Backend error {r.status_code}: {r.text[:400]}")
+            except Exception as e:
+                st.error(f"API error: {e}\nRaw: {r.text[:400]}")
+
+# ----- show gate panel if set -----
+if "gate_detail" in st.session_state:
+    _render_gate_panel(st.session_state["gate_detail"])
 
 # ===== render results if present =====
 if "analysis" in st.session_state:
@@ -114,77 +135,30 @@ if "analysis" in st.session_state:
             st.markdown("**Rationale**"); st.write(c.get("rationale",""))
             if c.get("policy_violations"):
                 st.markdown("**Policy Violations**")
-                for v in c.get("policy_violations", []): st.write("- ", v)
+                for v in c.get("policy_violations", []):
+                    st.write("- ", v)
             if c.get("proposed_text"):
                 st.markdown("**Suggested Redline**"); st.write(c["proposed_text"])
                 st.markdown("**Why**"); st.write(c.get("explanation",""))
                 st.markdown("**Negotiation Note**"); st.write(c.get("negotiation_note",""))
 
-    st.markdown("⚠️ Note: This is a research prototype. Do not use for real contracts without human review.")
-
-    # ----- next actions -----
     st.divider()
     st.subheader("Next actions")
 
-    file_name = st.session_state.get("last_file_name")
-    file_bytes = st.session_state.get("last_file_bytes")
-    file_type = st.session_state.get("last_file_type", "application/octet-stream")
-
-    # Email input and send button
-    st.markdown("**Send analyzed contract via Email**")
-    to_email = st.text_input("Recipient Email Address", value=st.session_state.get("email_input", ""), key="email_input")
-
-    if st.button("Send Email", key="send_email_btn"):
-        if not file_bytes:
+    # email action (SendGrid backend)
+    fname, fbytes, _ = _current_file_triplet()
+    to_email2 = st.text_input("Recipient Email Address", value=st.session_state.get("email_input", ""), key="email_input_next")
+    if st.button("Send via Email (SendGrid)"):
+        if not fbytes:
             st.error("Upload a file first")
-        elif not to_email or "@" not in to_email:
-            st.error("Please enter a valid recipient email address.")
+        elif not to_email2 or "@" not in to_email2:
+            st.error("Enter a valid recipient email")
         else:
-            files = {"file": (file_name, file_bytes)}
-            params = {"to_email": to_email, "subject": "Revised contract"}
-            try:
-                resp = requests.post(f"{API_URL}/send_email", params=params, files=files, timeout=60)
-                if resp.ok:
-                    status = resp.json().get("provider_status", resp.status_code)
-                    st.success(f"Email sent (status {status})")
-                else:
-                    st.error(f"Email failed: {resp.status_code} {resp.text}")
-            except Exception as e:
-                st.error(f"Email API error: {e}")
-
-    colA, colB = st.columns(2)
-
-    with colA:
-        if st.button("Send via Email (SendGrid)"):
-            if not file_bytes:
-                st.error("Upload a file first")
-            elif not to_email or "@" not in to_email:
-                st.error("Enter a valid recipient email")
+            files = {"file": (fname, fbytes)}
+            params = {"to_email": to_email2, "subject": "Revised contract"}
+            resp = requests.post(f"{API_URL}/send_email", params=params, files=files, timeout=60)
+            if resp.ok:
+                status = resp.json().get("provider_status", resp.status_code)
+                st.success(f"Email sent (SendGrid status {status})")
             else:
-                files = {"file": (file_name, file_bytes)}
-                params = {"to_email": to_email, "subject": "Revised contract"}
-                try:
-                    resp = requests.post(f"{API_URL}/send_email", params=params, files=files, timeout=60)
-                    if resp.ok:
-                        status = resp.json().get("provider_status", resp.status_code)
-                        st.success(f"Email sent (SendGrid status {status})")
-                    else:
-                        st.error(f"Email failed: {resp.status_code} {resp.text}")
-                except Exception as e:
-                    st.error(f"SendGrid API error: {e}")
-
-    with colB:
-        if st.button("Send via DocuSign"):
-            if not file_bytes:
-                st.error("Upload a file first")
-            else:
-                files = {"file": (file_name, file_bytes, file_type)}
-                params = {"signer_email": to_email or "recipient@example.com", "signer_name": "Recipient"}
-                try:
-                    r = requests.post(f"{API_URL}/send_for_signature", params=params, files=files, timeout=60)
-                    if r.ok:
-                        st.success(r.json())
-                    else:
-                        st.error(f"DocuSign error: {r.status_code} {r.text}")
-                except Exception as e:
-                    st.error(f"DocuSign API error: {e}")
+                st.error(f"Email failed: {resp.status_code} {resp.text}")
