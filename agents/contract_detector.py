@@ -1,159 +1,188 @@
-from __future__ import annotations
+# agents/contract_detector.py
+# Rule-based "is this a contract?" detector:
+# - Jargon / clause cues
+# - Parties phrasing
+# - Section/heading structure
+# - Signature blocks
+# - Governing-law style language
+# Returns (bool, details) with a 0..100 score and reasons.
 
+from __future__ import annotations
 import re
-from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
-# === Tunables (softer for short docs) ===
-MIN_WORDS_FULL = 350       
-MIN_WORDS_SHORT = 120      
-ACCEPT_SCORE = 55          
+# ----- Tunables -----
+SHORT_MIN_WORDS = 100     # accept short NDAs
+FULL_MIN_WORDS  = 350
+ACCEPT_SCORE    = 55      # final threshold to accept
+BINARY_MAX_RATIO = 0.20   # if >20% non-text bytes -> treat as parsing failure
 
-# Character class used in "between Party A and Party B" style matching.
-# Include spaces and common punctuation to cover company names.
-_WORD = r"[A-Za-z0-9'’\-&.,()/ ]"
+# ----- Keyword banks -----
+JARGON = [
+    "whereas", "herein", "hereto", "thereof", "therein", "thereby",
+    "notwithstanding", "pursuant", "indemnify", "indemnification",
+    "warrant", "covenant", "assigns", "counterparts", "severability",
+    "force majeure", "governing law", "venue", "jurisdiction",
+    "confidentiality", "non-disclosure", "entire agreement",
+    "limitation of liability", "arbitration", "remedies", "waiver",
+]
 
-# ----- Patterns -----
+CLAUSES = [
+    "term", "termination", "confidentiality", "indemnity", "indemnification",
+    "limitation of liability", "warranty", "representations", "assignment",
+    "notices", "force majeure", "severability", "entire agreement", "waiver",
+    "remedies", "dispute", "arbitration", "payment", "consideration",
+    "scope of work", "deliverables", "acceptance",
+    "intellectual property", "license", "non-solicitation", "non-compete",
+    "governing law", "venue", "jurisdiction",
+]
 
+NEGATIVE_HINTS = [
+    "```", "requirements.txt", "package.json", "pip install", "import ",
+    "SELECT ", "CREATE TABLE", "api reference", "tutorial", "chapter",
+    "lesson", "syllabus", "how to", "project manual",
+]
+
+# ----- Regexes -----
 TITLE_PAT = re.compile(
-    r"""(?mx)
-    ^\s*
-    (?:(?:MASTER|PROFESSIONAL|SOFTWARE|SERVICES|LICENSING|
-         NON[-\s]DISCLOSURE|MUTUAL\s+NDA|EMPLOYMENT|LEASE|SUPPLY|PURCHASE|SUBSCRIPTION|
-         MEMORANDUM\s+OF\s+UNDERSTANDING|MOU|LETTER\s+OF\s+INTENT)\s+)?   # optional prefix
-    (?:AGREEMENT|CONTRACT|TERMS(?:\s+AND\s+CONDITIONS)?|
-       STATEMENT\s+OF\s+WORK|SOW|CONFIDENTIALITY\s+AGREEMENT)\b
-    """,
-    re.IGNORECASE,
+    r"""(?imx)
+    ^\s*(?:
+        (?:MASTER|PROFESSIONAL|SOFTWARE|SERVICES|LICENSING|SUBSCRIPTION|
+           NON[-\s]?DISCLOSURE|MUTUAL\s+NDA|EMPLOYMENT|LEASE|SUPPLY|PURCHASE|
+           MEMORANDUM\s+OF\s+UNDERSTANDING|MOU|LETTER\s+OF\s+INTENT)\s+)?
+       (?:AGREEMENT|CONTRACT|TERMS(?:\s+AND\s+CONDITIONS)?|
+          STATEMENT\s+OF\s+WORK|SOW|CONFIDENTIALITY\s+AGREEMENT)\b
+    """
 )
 
-# Build with .replace to avoid any {} formatting conflicts with regex quantifiers.
-_PARTIES_SRC = r"""
-\b(?:
-    this\s+agreement\s+is\s+made\s+(?:as\s+of\s+)?(?:the\s+)?[^,\n]{0,120}?\s+by\s+and\s+between\b
-  | between\b\s+{W}{2,120}\s+(?:and|&)\s+{W}{2,120}
-  | party\s+A.*\bparty\s+B
-)\b
-"""
-PARTIES_PAT = re.compile(_PARTIES_SRC.replace("{W}", _WORD), re.IGNORECASE | re.VERBOSE)
+WORD_FOR_PARTY = r"[A-Za-z0-9'’\-&.,()/ ]"
+PARTIES_PAT = re.compile(
+    rf"""(?ix)
+    \b(?:
+        this\s+agreement\s+is\s+made\s+(?:as\s+of\s+)?(?:the\s+)?[^,\n]{{0,120}}?\s+by\s+and\s+between
+      | between\s+{WORD_FOR_PARTY}{{2,120}}\s+(?:and|&)\s+{WORD_FOR_PARTY}{{2,120}}
+      | party\s+A.*\bparty\s+B
+    )\b
+    """
+)
 
-SIG_BLOCK_PAT = re.compile(
+SIG_PAT = re.compile(
     r"(IN\s+WITNESS\s+WHEREOF|SIGNATURES?|By:\s*__|Signed\s+by|Name:\s|Title:\s|Date:\s|Authorized\s+Signatory)",
     re.IGNORECASE,
 )
 
-GOV_LAW_PAT = re.compile(r"\b(governing\s+law|jurisdiction|venue|courts?\s+of)\b", re.IGNORECASE)
+GOVLAW_PAT = re.compile(r"\b(governing\s+law|jurisdiction|venue|courts?\s+of)\b", re.IGNORECASE)
 
 HEAD_PAT = re.compile(
     r"^(?:\d+(?:\.\d+){0,3}\s*[-.:)]\s*)?[A-Z][A-Z \-/]{3,}$|^SECTION\s+\d+\b.*$",
     re.MULTILINE,
 )
 
-BOILERPLATE = [
-    "term", "termination", "confidential", "non-disclosure", "indemn", "limitation of liability",
-    "warranty", "representation", "assignment", "notices", "force majeure", "severability",
-    "entire agreement", "waiver", "remedies", "dispute", "arbitration", "audit",
-    "compliance", "payment", "consideration", "scope of work", "deliverables", "acceptance",
-    "intellectual property", "license", "non-solicitation", "non-compete", "counterpart",
-    "amendment", "survival", "governing law",
-]
-
-NEGATIVE_TERMS = [
-    "pip install", "import ", "SELECT ", "CREATE TABLE", "json:", "yaml", "```", "requirements.txt",
-    "package.json", "readme", "tutorial", "chapter", "lesson", "homework", "syllabus",
-    "how to", "step 1", "step 2", "project manual", "api reference",
-]
-
-@dataclass
-class ContractHeuristics:
-    score: int
-    reasons_pos: List[str]
-    reasons_neg: List[str]
-    def to_dict(self) -> Dict:
-        return {"score": self.score, "positives": self.reasons_pos, "negatives": self.reasons_neg}
-
+# Utility
 def _count(pattern: re.Pattern, text: str) -> int:
     return len(pattern.findall(text))
 
+def _word_count(text: str) -> int:
+    return len(re.findall(r"\b\w+\b", text))
+
+def _looks_binary(text: str) -> bool:
+    # if the upstream PDF parser failed and we got bytes-like noise,
+    # non-text chars ratio will be high.
+    if not text:
+        return False
+    nonprint = sum(ch < " " and ch not in "\n\r\t" for ch in text)
+    ratio = nonprint / max(1, len(text))
+    return ratio > BINARY_MAX_RATIO
+
 def looks_like_contract_v2(text: str) -> Tuple[bool, Dict]:
-    """
-    Return (is_contract: bool, details: dict with score/positives/negatives).
-    Deterministic 0..100 scoring; uses a short-doc accept rule for brief NDAs.
-    """
     reasons_pos: List[str] = []
     reasons_neg: List[str] = []
     score = 0
 
     t = text or ""
-    n_chars = len(t)
-    n_words = len(re.findall(r"\b\w+\b", t))
-    is_short = MIN_WORDS_SHORT <= n_words < MIN_WORDS_FULL
+    n_words = _word_count(t)
+    is_short = SHORT_MIN_WORDS <= n_words < FULL_MIN_WORDS
 
-    # L0 — sanity
-    if n_words < MIN_WORDS_SHORT:
-        reasons_neg.append(f"Too short: {n_words} words (<{MIN_WORDS_SHORT})")
-        score -= 20  # softer penalty
+    # Binary/gibberish guard (parsing failed)
+    if _looks_binary(t[:4000]):
+        reasons_neg.append("Document appears binary/gibberish — PDF text extraction failed (-25)")
+        score -= 25
+
+    # Length gates (soft penalties, not hard fails)
+    if n_words < SHORT_MIN_WORDS:
+        reasons_neg.append(f"Very short: {n_words} words (<{SHORT_MIN_WORDS}) (-20)")
+        score -= 20
     elif is_short:
-        reasons_pos.append(f"Short document mode ({n_words} words)")
+        reasons_pos.append(f"Short-doc mode: {n_words} words")
 
-    # L1 — structural cues
+    # Title cue
     if TITLE_PAT.search(t[:4000]):
-        bump = 22 if is_short else 15
-        score += bump
+        bump = 20 if is_short else 15
         reasons_pos.append(f"Title indicates agreement/contract (+{bump})")
+        score += bump
 
+    # Parties / Between … and …
     if PARTIES_PAT.search(t[:8000]):
+        reasons_pos.append("Intro references the parties (+18)")
         score += 18
-        reasons_pos.append("Intro references parties (+18)")
 
-    head_hits = min(_count(HEAD_PAT, t), 20)
+    # Headings / structure
+    head_hits = min(_count(HEAD_PAT, t), 24)
     if head_hits >= (2 if is_short else 5):
         bump = 12 if is_short else 10
+        reasons_pos.append(f"Found {head_hits} section headings (+{bump})")
         score += bump
-        reasons_pos.append(f"Has {head_hits} section headings (+{bump})")
 
-    if SIG_BLOCK_PAT.search(t[-max(1400, n_chars // 4):]):
+    # Signature end block
+    tail = t[-max(1400, len(t) // 4):]
+    if SIG_PAT.search(tail):
+        reasons_pos.append("Signature block near the end (+18)")
         score += 18
-        reasons_pos.append("Signature block indicators near end (+18)")
 
-    if GOV_LAW_PAT.search(t):
+    # Governing-law style language
+    if GOVLAW_PAT.search(t):
+        reasons_pos.append("Governing-law / venue language (+8)")
         score += 8
-        reasons_pos.append("Governing-law / venue language present (+8)")
 
-    # L2 — clause density
-    clause_hits = sum(1 for term in BOILERPLATE if re.search(rf"\b{re.escape(term)}\b", t, re.IGNORECASE))
-    clause_points = min(24, int((2.2 if is_short else 1.6) * clause_hits))
-    score += clause_points
+    # Clause density
+    clause_hits = 0
+    for term in CLAUSES:
+        if re.search(rf"\b{re.escape(term)}\b", t, re.IGNORECASE):
+            clause_hits += 1
+    clause_points = min(24, int((2.0 if is_short else 1.6) * clause_hits))
     if clause_hits:
-        reasons_pos.append(f"{clause_hits} common contract clauses found (+{clause_points})")
+        reasons_pos.append(f"{clause_hits} common clauses present (+{clause_points})")
+        score += clause_points
 
-    # L3 — negatives
-    neg_hits = [term for term in NEGATIVE_TERMS if term.lower() in t.lower()]
-    if neg_hits:
-        score -= 18
-        reasons_neg.append(f"Developer/guide vocabulary detected: {', '.join(neg_hits[:5])} (-18)")
+    # Negative hints (tutorial/code/docs)
+    neg_found = [term for term in NEGATIVE_HINTS if term.lower() in t.lower()]
+    if neg_found:
+        reasons_neg.append(f"Developer/guide vocabulary detected: {', '.join(neg_found[:5])} (-16)")
+        score -= 16
 
+    # Bullet-heavy penalty
     bullets = len(re.findall(r"^\s*(?:-|\*|•|\d+\.)\s+", t, re.MULTILINE))
     lines = max(1, len(t.splitlines()))
     if (bullets / lines) > (0.55 if is_short else 0.35):
-        score -= 8
         reasons_neg.append("Bullet-heavy document (-8)")
+        score -= 8
 
-    # Explicit accept rule for short docs
+    # Short-doc accept rule: any two of (title | parties | signature) + ≥4 clauses
     accept_rule = None
     if is_short:
         has_title = bool(TITLE_PAT.search(t[:4000]))
         has_parties = bool(PARTIES_PAT.search(t[:8000]))
-        has_sig = bool(SIG_BLOCK_PAT.search(t[-max(1400, n_chars // 4):]))
-        if (has_title and clause_hits >= 4) or (has_parties and clause_hits >= 4) or (has_sig and clause_hits >= 4):
+        has_sig = bool(SIG_PAT.search(tail))
+        strong = sum([has_title, has_parties, has_sig])
+        if strong >= 2 and clause_hits >= 4:
             accept_rule = "short_doc_rule"
             reasons_pos.append("Short-doc accept rule matched")
 
-    # Decision
+    # Clamp and decide
     score = max(0, min(100, score))
     is_contract = (score >= ACCEPT_SCORE) or (accept_rule is not None)
 
-    details = {"score": score, "positives": reasons_pos, "negatives": reasons_neg}
+    details: Dict = {"score": score, "positives": reasons_pos, "negatives": reasons_neg}
     if accept_rule:
         details["rule"] = accept_rule
     return is_contract, details
