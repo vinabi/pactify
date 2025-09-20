@@ -1,63 +1,97 @@
 # agents/tools_parser.py
 from __future__ import annotations
-import io
-import re
 from typing import List, Tuple
+import io
+import os
 
-# Light dependencies only; all available in your env
-from docx import Document as DocxDocument
-from pypdf import PdfReader
+from loguru import logger
 
-def _read_txt(raw: bytes) -> str:
-    for enc in ("utf-8", "utf-16", "latin-1"):
-        try:
-            return raw.decode(enc)
-        except Exception:
-            continue
-    return raw.decode("utf-8", errors="ignore")
+# Light deps only:
+#   PyPDF2 for PDFs
+#   python-docx for DOCX
+# If they’re missing, the code degrades gracefully.
 
-def _read_docx(raw: bytes) -> str:
-    fp = io.BytesIO(raw)
-    doc = DocxDocument(fp)
-    return "\n".join(p.text for p in doc.paragraphs)
-
-def _read_pdf(raw: bytes) -> str:
-    # Try PyPDF first (works on many text-based PDFs)
+def _read_pdf(data: bytes) -> str:
     try:
-        reader = PdfReader(io.BytesIO(raw))
-        texts = []
+        import PyPDF2
+        txt_parts: List[str] = []
+        reader = PyPDF2.PdfReader(io.BytesIO(data))
         for page in reader.pages:
-            txt = page.extract_text() or ""
-            texts.append(txt)
-        out = "\n".join(texts).strip()
-        if out:
-            return out
-    except Exception:
-        pass
-    # Last-ditch: if it still looks like binary, fall back to a safe placeholder
-    # (so UI won’t display raw %PDF bytes as “Original”)
-    return "[Unable to extract text from PDF. Please upload a text-based PDF or DOCX/TXT.]"
+            txt_parts.append(page.extract_text() or "")
+        text = "\n".join(txt_parts).strip()
+        if text:
+            return text
+    except Exception as e:
+        logger.warning(f"PyPDF2 failed: {e}")
+    return ""  # caller will handle empty
+
+def _read_docx(data: bytes) -> str:
+    try:
+        import docx  # python-docx
+        bio = io.BytesIO(data)
+        doc = docx.Document(bio)
+        return "\n".join([p.text for p in doc.paragraphs]).strip()
+    except Exception as e:
+        logger.warning(f"python-docx failed: {e}")
+    return ""
 
 def read_any(raw: bytes, filename: str) -> str:
+    """
+    Return clean UTF-8 text for PDF/DOCX/TXT.
+    Never return raw binary; if parsing fails, raise a helpful error.
+    """
     name = (filename or "").lower()
-    if name.endswith(".txt"):
-        return _read_txt(raw)
-    if name.endswith(".docx"):
-        return _read_docx(raw)
+
     if name.endswith(".pdf"):
-        return _read_pdf(raw)
-    # default
-    return _read_txt(raw)
+        text = _read_pdf(raw)
+        if not text:
+            raise ValueError("Failed to extract text from PDF. Is it scanned or image-only?")
+        return text
 
-CLAUSE_SPLIT = re.compile(r"\n{2,}|^\s*\d+(\.\d+)*\s+[A-Z].{2,}$", re.M)
+    if name.endswith(".docx"):
+        text = _read_docx(raw)
+        if not text:
+            raise ValueError("Failed to extract text from DOCX")
+        return text
 
-def rough_clauses(text: str) -> List[Tuple[str, str]]:
-    """Very rough chunker: (heading, body)."""
-    parts = [p.strip() for p in CLAUSE_SPLIT.split(text) if p.strip()]
-    out = []
-    for i, chunk in enumerate(parts, 1):
-        # Heading guess: first line up to 120 chars
-        first_line = chunk.splitlines()[0][:120]
-        heading = re.sub(r"[^A-Za-z0-9 \-/&]", " ", first_line).strip() or f"Chunk {i}"
-        out.append((heading, chunk))
-    return out
+    if name.endswith(".txt"):
+        try:
+            return raw.decode("utf-8", errors="replace")
+        except Exception:
+            return raw.decode("latin-1", errors="replace")
+
+    raise ValueError(f"Unsupported file type for {filename}")
+
+# very rough chunker; keep small to avoid token blowups
+def rough_clauses(text: str, max_chars: int = 1600) -> List[Tuple[str, str]]:
+    """
+    Split text into heading+body chunks. We look for common clause keywords;
+    otherwise we chunk by length.
+    """
+    import re
+
+    lines = text.splitlines()
+    blocks: List[Tuple[str, str]] = []
+    cur_head = "Chunk"
+    cur_buf: List[str] = []
+    i = 0
+
+    heading_re = re.compile(r"^\s*(\d+(\.\d+)*\s+)?([A-Z][A-Za-z \-/]{3,40}):?\s*$")
+
+    for ln in lines:
+        if heading_re.match(ln) and cur_buf:
+            blocks.append((cur_head, "\n".join(cur_buf).strip()))
+            cur_buf = []
+            i += 1
+            cur_head = heading_re.match(ln).group(0).strip(": ").strip()
+        else:
+            cur_buf.append(ln)
+            if sum(len(x) for x in cur_buf) > max_chars:
+                blocks.append((cur_head, "\n".join(cur_buf).strip()))
+                cur_buf = []
+                i += 1
+                cur_head = f"Chunk {i}"
+
+    if cur_buf:
+        blocks.append((cur_head, "\n".join(cur_buf).strip()))
+    return blocks
