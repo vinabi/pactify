@@ -28,6 +28,19 @@ if uploaded:
     st.session_state["last_file_bytes"] = uploaded.getvalue()
     st.session_state["last_file_type"] = uploaded.type or "application/octet-stream"
 
+if uploaded:
+    st.session_state["last_file_name"] = uploaded.name
+    st.session_state["last_file_bytes"] = uploaded.getvalue()
+    guessed = uploaded_file.type or ""
+    if not guessed or guessed == "application/octet-stream":
+        if uploaded.name.lower().endswith(".pdf"):
+            guessed = "application/pdf"
+        elif uploaded.name.lower().endswith(".docx"):
+            guessed = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        else:
+            guessed = "text/plain"
+    st.session_state["last_file_type"] = guessed
+
 # recipient email input
 to_email = st.text_input("Recipient email", value=st.session_state.get("email_input", "yourgmail@gmail.com"), key="email_input")
 
