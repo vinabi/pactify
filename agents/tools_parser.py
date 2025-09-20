@@ -1,97 +1,81 @@
 # agents/tools_parser.py
 from __future__ import annotations
+import io, re
 from typing import List, Tuple
-import io
-import os
 
-from loguru import logger
-
-# Light deps only:
-#   PyPDF2 for PDFs
-#   python-docx for DOCX
-# If they’re missing, the code degrades gracefully.
-
-def _read_pdf(data: bytes) -> str:
+def _read_pdf(raw: bytes) -> str:
+    # Try pypdf first
     try:
-        import PyPDF2
-        txt_parts: List[str] = []
-        reader = PyPDF2.PdfReader(io.BytesIO(data))
-        for page in reader.pages:
-            txt_parts.append(page.extract_text() or "")
-        text = "\n".join(txt_parts).strip()
-        if text:
-            return text
-    except Exception as e:
-        logger.warning(f"PyPDF2 failed: {e}")
-    return ""  # caller will handle empty
-
-def _read_docx(data: bytes) -> str:
+        from pypdf import PdfReader
+        rd = PdfReader(io.BytesIO(raw))
+        parts = []
+        for pg in rd.pages:
+            parts.append(pg.extract_text() or "")
+        txt = "\n".join(parts).strip()
+        if len(txt) >= 200:
+            return txt
+    except Exception:
+        pass
+    # Fallback pdfplumber
     try:
-        import docx  # python-docx
-        bio = io.BytesIO(data)
-        doc = docx.Document(bio)
-        return "\n".join([p.text for p in doc.paragraphs]).strip()
+        import pdfplumber
+        with pdfplumber.open(io.BytesIO(raw)) as pdf:
+            parts = []
+            for pg in pdf.pages:
+                parts.append(pg.extract_text() or "")
+        txt = "\n".join(parts).strip()
+        if len(txt) >= 200:
+            return txt
+    except Exception:
+        pass
+    raise ValueError("PDF contains little/no extractable text (likely scanned).")
+
+def _read_docx(raw: bytes) -> str:
+    try:
+        from docx import Document
+        doc = Document(io.BytesIO(raw))
+        return "\n".join(p.text for p in doc.paragraphs).strip()
     except Exception as e:
-        logger.warning(f"python-docx failed: {e}")
-    return ""
+        raise ValueError(f"DOCX parse failed: {e}")
+
+def _read_txt(raw: bytes) -> str:
+    for enc in ("utf-8", "utf-16", "latin-1"):
+        try:
+            return raw.decode(enc)
+        except Exception:
+            continue
+    return raw.decode("utf-8", errors="ignore")
 
 def read_any(raw: bytes, filename: str) -> str:
-    """
-    Return clean UTF-8 text for PDF/DOCX/TXT.
-    Never return raw binary; if parsing fails, raise a helpful error.
-    """
     name = (filename or "").lower()
-
     if name.endswith(".pdf"):
-        text = _read_pdf(raw)
-        if not text:
-            raise ValueError("Failed to extract text from PDF. Is it scanned or image-only?")
-        return text
-
+        return _read_pdf(raw)
     if name.endswith(".docx"):
-        text = _read_docx(raw)
-        if not text:
-            raise ValueError("Failed to extract text from DOCX")
-        return text
-
+        return _read_docx(raw)
     if name.endswith(".txt"):
-        try:
-            return raw.decode("utf-8", errors="replace")
-        except Exception:
-            return raw.decode("latin-1", errors="replace")
-
+        return _read_txt(raw)
     raise ValueError(f"Unsupported file type for {filename}")
 
-# very rough chunker; keep small to avoid token blowups
-def rough_clauses(text: str, max_chars: int = 1600) -> List[Tuple[str, str]]:
-    """
-    Split text into heading+body chunks. We look for common clause keywords;
-    otherwise we chunk by length.
-    """
-    import re
+# very light clause splitter
+_HEADING = re.compile(r"^\s*(?:section|clause|article|\d+(\.\d+)*|\([a-z]\)|[A-Z][\w\- ]{3,})[:\-–]?\s*$", re.I)
 
-    lines = text.splitlines()
-    blocks: List[Tuple[str, str]] = []
-    cur_head = "Chunk"
-    cur_buf: List[str] = []
-    i = 0
-
-    heading_re = re.compile(r"^\s*(\d+(\.\d+)*\s+)?([A-Z][A-Za-z \-/]{3,40}):?\s*$")
-
+def rough_clauses(text: str) -> List[Tuple[str, str]]:
+    lines = [ln.rstrip() for ln in (text or "").splitlines()]
+    out: List[Tuple[str,str]] = []
+    head, buf = "Preamble", []
     for ln in lines:
-        if heading_re.match(ln) and cur_buf:
-            blocks.append((cur_head, "\n".join(cur_buf).strip()))
-            cur_buf = []
-            i += 1
-            cur_head = heading_re.match(ln).group(0).strip(": ").strip()
+        if _HEADING.match(ln.strip()):
+            if buf:
+                out.append((head, "\n".join(buf).strip()))
+                buf = []
+            head = ln.strip().strip(":").strip()
         else:
-            cur_buf.append(ln)
-            if sum(len(x) for x in cur_buf) > max_chars:
-                blocks.append((cur_head, "\n".join(cur_buf).strip()))
-                cur_buf = []
-                i += 1
-                cur_head = f"Chunk {i}"
-
-    if cur_buf:
-        blocks.append((cur_head, "\n".join(cur_buf).strip()))
-    return blocks
+            buf.append(ln)
+    if buf:
+        out.append((head, "\n".join(buf).strip()))
+    if not out:
+        clean = " ".join(lines)
+        sz = 1200
+        chunks = [clean[i:i+sz] for i in range(0, len(clean), sz)]
+        out = [(f"Chunk {i+1}", c) for i, c in enumerate(chunks)]
+    return out
