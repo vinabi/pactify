@@ -36,4 +36,15 @@ class Settings(BaseSettings):
     max_file_mb: int = int(_trim("MAX_FILE_MB", "10"))
     max_clauses: int = int(_trim("MAX_CLAUSES", "300"))
 
+    sendgrid_api_key: str | None = None
+    email_sender: str | None = None
+
+    def __init__(self, **values):
+        super().__init__(**values)
+        # strip whitespace/newlines from secrets
+        if self.sendgrid_api_key:
+            self.sendgrid_api_key = self.sendgrid_api_key.strip()
+        if self.email_sender:
+            self.email_sender = self.email_sender.strip()
+
 settings = Settings()
