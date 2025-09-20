@@ -1,179 +1,131 @@
-# home.py
-import os
-import requests
-import streamlit as st
+# home.py  (place at repo root for Streamlit Cloud)
+import os, requests, streamlit as st
 from typing import Dict, Any
 
-# Read the backend URL from Streamlit secrets first, then env, then fallback
-API_URL = st.secrets.get("API_URL", os.environ.get("API_URL", "http://127.0.0.1:8080"))
+API_URL = os.environ.get("API_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="Contract Risk Analyzer", layout="wide", page_icon="⚖️")
 st.title("⚖️ Contract Risk Analyzer")
 st.caption("Upload a contract → detect risks → propose redlines → summarize")
 
-# ----- sidebar -----
 with st.sidebar:
     st.header("Options")
-    strict_mode = st.toggle("Strict mode (stricter JSON parsing)", value=True)
+    strict_mode = st.toggle("Strict mode", value=True)
     jurisdiction = st.selectbox("Jurisdiction", ["General", "US", "EU", "UK", "PK", "AE"])
     top_k_precedents = st.slider("Precedent grounding (k)", 0, 3, 0)
     st.divider()
-    st.markdown("**Backend:**")
+    st.markdown("**Backend**:")
     st.code(API_URL)
 
-# ----- file upload (persist for reuse) -----
-uploaded = st.file_uploader("Upload PDF/DOCX/TXT", type=["pdf", "docx", "txt"], accept_multiple_files=False)
-if uploaded:
-    st.session_state["last_file_name"] = uploaded.name
-    st.session_state["last_file_bytes"] = uploaded.getvalue()
-    st.session_state["last_file_type"] = uploaded.type or "application/octet-stream"
-
-if uploaded:
-    st.session_state["last_file_name"] = uploaded.name
-    st.session_state["last_file_bytes"] = uploaded.getvalue()
-    guessed = uploaded.type or ""
+uploaded_file = st.file_uploader("Upload PDF/DOCX/TXT", type=["pdf", "docx", "txt"], accept_multiple_files=False)
+if uploaded_file:
+    st.session_state["last_file_name"] = uploaded_file.name
+    st.session_state["last_file_bytes"] = uploaded_file.getvalue()
+    guessed = uploaded_file.type or ""
     if not guessed or guessed == "application/octet-stream":
-        if uploaded.name.lower().endswith(".pdf"):
+        if uploaded_file.name.lower().endswith(".pdf"):
             guessed = "application/pdf"
-        elif uploaded.name.lower().endswith(".docx"):
+        elif uploaded_file.name.lower().endswith(".docx"):
             guessed = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         else:
             guessed = "text/plain"
     st.session_state["last_file_type"] = guessed
 
-# recipient email input
-to_email = st.text_input("Recipient email", value=st.session_state.get("email_input", "yourgmail@gmail.com"), key="email_input")
+to_email = st.text_input("Recipient email (SendGrid)", value=st.session_state.get("email_input", "your@gmail.com"), key="email_input")
 
-def _current_file():
-    return (
-        st.session_state.get("last_file_name"),
-        st.session_state.get("last_file_bytes"),
-        st.session_state.get("last_file_type", "application/octet-stream"),
-    )
+colA, colB = st.columns([1,1])
+with colA:
+    if st.button("Analyze", type="primary", use_container_width=True):
+        if "last_file_bytes" not in st.session_state:
+            st.error("Please upload a file.")
+            st.stop()
+        with st.spinner("Analyzing..."):
+            files = {"file": (st.session_state["last_file_name"], st.session_state["last_file_bytes"], st.session_state["last_file_type"])}
+            params = {"strict_mode": str(strict_mode).lower(), "jurisdiction": jurisdiction, "top_k_precedents": int(top_k_precedents)}
+            try:
+                r = requests.post(f"{API_URL}/analyze", params=params, files=files, timeout=600)
+                if r.status_code == 422:
+                    dj = r.json().get("detail", {})
+                    st.error(dj.get("message", "Rejected"))
+                    st.info("**Contract-likeness signals (positives):**\n- " + "\n- ".join(dj.get("positives", []) or ["(none)"]))
+                    st.warning("**Non-contract signals (negatives):**\n- " + "\n- ".join(dj.get("negatives", []) or ["(none)"]))
+                    st.write("Score:", dj.get("score"))
+                r.raise_for_status()
+                st.session_state["analysis"] = r.json()
+            except requests.HTTPError as e:
+                try:
+                    detail = r.json().get("detail")
+                except Exception:
+                    detail = str(e)
+                st.error(f"API error: {detail}")
+                st.stop()
+            except Exception as e:
+                st.error(f"API error: {e}")
+                st.stop()
 
-def _render_gate_panel(detail: Dict[str, Any]):
-    msg = detail.get("message", "This file doesn't look like a contract.")
-    score = detail.get("score")
-    st.error(f"{msg} (score {score})")
-
-    colA, colB = st.columns(2)
-    with colA:
-        pos = detail.get("positives") or []
-        if pos:
-            st.info("**Detected contract-like signals:**\n- " + "\n- ".join(pos))
-    with colB:
-        neg = detail.get("negatives") or []
-        if neg:
-            st.warning("**Detected non-contract signals:**\n- " + "\n- ".join(neg))
-
-    # Always show override button
-    if st.button("Override and analyze anyway", key="override_btn", use_container_width=True):
-        fname, fbytes, ftype = _current_file()
-        if not fbytes:
+with colB:
+    if st.button("Override and analyze anyway", use_container_width=True):
+        if "last_file_bytes" not in st.session_state:
             st.error("Upload a file first")
-            return
+            st.stop()
+        files = {"file": (st.session_state["last_file_name"], st.session_state["last_file_bytes"], st.session_state["last_file_type"])}
+        params = {"strict_mode": str(strict_mode).lower(), "jurisdiction": jurisdiction, "top_k_precedents": int(top_k_precedents), "allow_non_contract": "true"}
         with st.spinner("Forcing analysis..."):
-            files = {"file": (fname, fbytes, ftype)}
-            params = {
-                "strict_mode": str(strict_mode).lower(),
-                "jurisdiction": jurisdiction,
-                "top_k_precedents": int(top_k_precedents),
-                "allow_non_contract": "true",
-            }
-            r2 = requests.post(f"{API_URL}/analyze", params=params, files=files, timeout=180)
+            r2 = requests.post(f"{API_URL}/analyze", params=params, files=files, timeout=600)
             try:
                 r2.raise_for_status()
                 st.session_state["analysis"] = r2.json()
-                st.session_state.pop("gate_detail", None)
                 st.rerun()
-            except requests.HTTPError:
-                st.error(f"Backend error {r2.status_code}: {r2.text[:500]}")
             except Exception as e:
-                st.error(f"Override failed: {e}\nRaw: {r2.text[:500]}")
+                st.error(f"Override failed: {e}")
 
-# ----- Analyze -----
-if st.button("Analyze", use_container_width=True, type="primary"):
-    fname, fbytes, ftype = _current_file()
-    if not fbytes:
-        st.error("Please upload a file.")
-    else:
-        with st.spinner("Analyzing... this can take 10–40s for longer files"):
-            files = {"file": (fname, fbytes, ftype)}
-            params = {
-                "strict_mode": str(strict_mode).lower(),
-                "jurisdiction": jurisdiction,
-                "top_k_precedents": int(top_k_precedents),
-            }
-            r = requests.post(f"{API_URL}/analyze", params=params, files=files, timeout=180)
-            try:
-                r.raise_for_status()
-                st.session_state["analysis"] = r.json()
-                st.session_state.pop("gate_detail", None)
-            except requests.HTTPError:
-                # Show 422 gate nicely
-                try:
-                    dj = r.json().get("detail")
-                except Exception:
-                    dj = None
-                if isinstance(dj, dict) and "score" in dj:
-                    st.session_state["gate_detail"] = dj
-                    st.session_state.pop("analysis", None)
-                else:
-                    st.error(f"Backend error {r.status_code}: {r.text[:500]}")
-            except Exception as e:
-                st.error(f"API error: {e}\nRaw: {r.text[:500]}")
-
-# ----- Gate panel if present -----
-if "gate_detail" in st.session_state:
-    _render_gate_panel(st.session_state["gate_detail"])
-
-# ===== Render results =====
+st.divider()
 if "analysis" in st.session_state:
     data: Dict[str, Any] = st.session_state["analysis"]
 
-    col1, col2 = st.columns([3, 2])
-    with col1:
+    c1, c2 = st.columns([3,2])
+    with c1:
         st.subheader("Executive Summary")
         st.write(data.get("summary", ""))
-    with col2:
+    with c2:
         st.subheader("Risk Overview")
-        st.metric("High", data.get("high_risk_count", 0))
-        st.metric("Medium", data.get("medium_risk_count", 0))
-        st.metric("Low", data.get("low_risk_count", 0))
+        hi, me, lo = data.get("high_risk_count",0), data.get("medium_risk_count",0), data.get("low_risk_count",0)
+        st.metric("High", hi); st.metric("Medium", me); st.metric("Low", lo)
 
-    st.divider()
     st.subheader("Clauses")
     for c in data.get("clauses", []):
         with st.expander(f"{c['id']} • {c['heading']} • {c['category']} • Risk: {c['risk']}"):
-            st.markdown("**Original**");         st.write(c.get("text",""))
-            st.markdown("**Rationale**");        st.write(c.get("rationale",""))
+            st.markdown("**Original**"); st.write(c.get("text",""))
+            st.markdown("**Rationale**"); st.write(c.get("rationale",""))
             if c.get("policy_violations"):
                 st.markdown("**Policy Violations**")
                 for v in c.get("policy_violations", []): st.write("- ", v)
             if c.get("proposed_text"):
                 st.markdown("**Suggested Redline**"); st.write(c["proposed_text"])
-                st.markdown("**Why**");               st.write(c.get("explanation",""))
-                st.markdown("**Negotiation Note**");  st.write(c.get("negotiation_note",""))
+                st.markdown("**Why**"); st.write(c.get("explanation",""))
+                st.markdown("**Negotiation Note**"); st.write(c.get("negotiation_note",""))
 
     st.divider()
     st.subheader("Next actions")
-
-    # SendGrid email action
-    fname, fbytes, _ = _current_file()
-    to_email2 = st.text_input("Recipient Email Address", value=st.session_state.get("email_input", ""), key="email_input_next")
-    if st.button("Send via Email (SendGrid)"):
-        if not fbytes:
-            st.error("Upload a file first")
-        elif not to_email2 or "@" not in to_email2:
-            st.error("Enter a valid recipient email")
+    file_name = st.session_state.get("last_file_name")
+    file_bytes = st.session_state.get("last_file_bytes")
+    if st.button("Send Email (SendGrid)"):
+        if not file_bytes or not to_email or "@" not in to_email:
+            st.error("Upload a file and enter a valid recipient email")
         else:
-            files = {"file": (fname, fbytes)}
-            params = {"to_email": to_email2, "subject": "Revised contract"}
-            resp = requests.post(f"{API_URL}/send_email", params=params, files=files, timeout=60)
+            # Build a quick HTML list of all violations
+            issues = []
+            for c in data.get("clauses", []):
+                for v in c.get("policy_violations", []):
+                    issues.append(f"<li><b>{c['id']} – {c['heading']}</b>: {v}</li>")
+            html = f"<h3>Detected risks</h3><ul>{''.join(issues) or '<li>No issues detected</li>'}</ul>"
+            files = {"file": (file_name, file_bytes)}
+            resp = requests.post(f"{API_URL}/send_email",
+                                 params={"to_email": to_email, "subject": "Contract risk report"},
+                                 files=files, data={"body": html}, timeout=60)
             if resp.ok:
-                status = resp.json().get("provider_status", resp.status_code)
-                st.success(f"Email sent (SendGrid status {status})")
+                st.success(f"Email sent (status {resp.json().get('provider_status')})")
             else:
                 st.error(f"Email failed: {resp.status_code} {resp.text}")
 
-    st.caption("Research prototype — human review required before use on real contracts.")
+st.caption("⚠️ Research prototype. Human review required.")
