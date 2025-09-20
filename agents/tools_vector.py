@@ -2,6 +2,7 @@ import os
 from typing import List, Tuple
 import chromadb
 from chromadb.utils import embedding_functions
+from loguru import logger
 
 def get_chroma(persist_dir: str):
     client = chromadb.PersistentClient(path=persist_dir)
@@ -14,7 +15,6 @@ def ensure_precedent_collection(client, name="precedents"):
     )
     col = client.get_or_create_collection(name=name, embedding_function=ef)
     return col
-
 
 def retrieve_precedents(client, query: str, k: int = 3) -> List[Tuple[str, str]]:
     col = ensure_precedent_collection(client)
@@ -32,3 +32,10 @@ def retrieve_snippets(vect_client, collection: str, query: str, k: int = 3):
     docs = res.get("documents", [[]])[0]
     metas = res.get("metadatas", [[]])[0]
     return list(zip(metas, docs))
+
+def ensure_kb_once(chroma_dir: str):
+    if os.path.isdir(chroma_dir) and os.listdir(chroma_dir):
+        logger.info("KB present at %s (skipping ingest).", chroma_dir)
+        return
+    # In Docker Space, this should never happen unless you removed the index.
+    logger.warning("KB missing at %s. (Did you remove baked index?)", chroma_dir)
