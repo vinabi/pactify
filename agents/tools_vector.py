@@ -25,3 +25,10 @@ def retrieve_precedents(client, query: str, k: int = 3) -> List[Tuple[str, str]]
     for doc, meta in zip(res.get("documents", [[]])[0], res.get("metadatas", [[]])[0]):
         out.append((meta.get("title", "Precedent"), doc))
     return out
+
+def retrieve_snippets(vect_client, collection: str, query: str, k: int = 3):
+    coll = vect_client.get_collection(collection)
+    res = coll.query(query_texts=[query], n_results=k)
+    docs = res.get("documents", [[]])[0]
+    metas = res.get("metadatas", [[]])[0]
+    return list(zip(metas, docs))
