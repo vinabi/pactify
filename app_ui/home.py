@@ -10,7 +10,19 @@ import sys
 # Add project root for imports
 sys.path.append(str(Path(__file__).parent.parent))
 
-from agents.orchestrator import ContractOrchestrator
+# API Configuration - Use HF Space as backend
+HF_API_BASE = "https://vinabi-pactify.hf.space"
+LOCAL_API_BASE = "http://localhost:8080"
+
+# Try HF Space first, fallback to local
+API_BASE_URL = HF_API_BASE
+
+try:
+    from agents.orchestrator import ContractOrchestrator
+    LOCAL_PROCESSING_AVAILABLE = True
+except ImportError:
+    LOCAL_PROCESSING_AVAILABLE = False
+
 import asyncio
 
 # Page configuration
