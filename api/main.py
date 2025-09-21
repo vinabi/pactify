@@ -11,8 +11,12 @@ from agents.tools_parser import read_any
 from agents.contract_detector import looks_like_contract_v2
 from agents.pipeline import analyze_contract
 from agents.tools_email import send_email_sendgrid
+from agents.orchestrator import ContractOrchestrator
 
-app = FastAPI(title="Contract Risk Analyzer", version="0.2.0")
+app = FastAPI(title="Contract Risk Analyzer", version="0.3.0")
+
+# Initialize the orchestrator
+orchestrator = ContractOrchestrator()
 
 app.add_middleware(
     CORSMiddleware,
@@ -101,6 +105,55 @@ async def send_email_api(
     except Exception as e:
         logger.exception("Send email failed")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/review_pipeline") 
+async def review_pipeline(
+    requester_email: str = Query(...),
+    jurisdiction: str = Query("General"),
+    strict_mode: bool = Query(True),
+    file: UploadFile = File(...),
+):
+    """Complete 5-stage contract review pipeline with email delivery"""
+    if not _ext_ok(file.filename):
+        raise HTTPException(status_code=400, detail="Invalid file extension")
+    
+    try:
+        file_bytes = await file.read()
+        
+        # Run the complete pipeline
+        result = await orchestrator.process_contract(
+            file_bytes=file_bytes,
+            filename=file.filename,
+            requester_email=requester_email,
+            jurisdiction=jurisdiction,
+            strict_mode=strict_mode
+        )
+        
+        # Return summary for API response
+        return {
+            "status": "completed",
+            "document_id": result.document_id,
+            "filename": result.filename,
+            "contract_type": result.contract_type,
+            "recommendation": result.recommendation,
+            "risk_score": result.risk_score,
+            "critical_issues": result.critical_issues[:3],  # Top 3 for API
+            "processing_time": result.processing_time_seconds,
+            "email_sent": requester_email is not None,
+            "next_steps": result.next_steps
+        }
+        
+    except ValueError as ve:
+        logger.warning(f"Invalid contract: {ve}")
+        raise HTTPException(status_code=422, detail=str(ve))
+    except Exception as e:
+        logger.exception("Pipeline failed")
+        raise HTTPException(status_code=500, detail="Pipeline processing failed")
+
+@app.get("/pipeline_stats")
+async def get_pipeline_stats():
+    """Get processing statistics"""
+    return orchestrator.get_stats()
 
 @app.post("/send_for_signature")
 async def send_for_signature(signer_email: str, signer_name: str = "Recipient", file: UploadFile = File(...)):

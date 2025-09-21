@@ -1,0 +1,41 @@
+[theme]
+# Primary accent color for interactive elements.
+primaryColor = "#333333"
+
+# Background color for the main content area.
+backgroundColor = "#ffffff"
+
+# Background color used for the sidebar and most interactive widgets.
+secondaryBackgroundColor = "#f0f2f6"
+
+# Color used for almost all text.
+textColor = "#262730"
+
+[server]
+# List of folders that should not be watched for changes.
+folderWatchBlacklist = ['']
+
+# Change the type of file watcher used by Streamlit.
+fileWatcherType = "auto"
+
+# Symmetric key used to produce signed cookies.
+cookieSecret = "pactify_contract_analyzer_secret_key"
+
+# If false, will attempt to open a browser window on start.
+headless = true
+
+# Automatically rerun script when the file is modified on disk.
+runOnSave = true
+
+# The address where the server will listen for client and browser connections.
+address = "0.0.0.0"
+
+# The port where the server will listen for client and browser connections.
+port = 8501
+
+[browser]
+# Internet address where users should point their browsers in order to connect to the app.
+serverAddress = "localhost"
+
+# Whether to send usage statistics to Streamlit.
+gatherUsageStats = false
