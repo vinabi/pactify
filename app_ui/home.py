@@ -176,7 +176,7 @@ def render_header():
     col1, col2, col3 = st.columns([2, 4, 2])
     
     with col1:
-        st.markdown('<div class="project-breadcrumb">Automated Contract Analysis & Review Agent</div>', unsafe_allow_html=True)
+        st.markdown('<div class="project-breadcrumb">All projects > Contract Analysis</div>', unsafe_allow_html=True)
     
     with col2:
         st.markdown('<h1 style="text-align: center; margin: 0;">Contract Analyzer</h1>', unsafe_allow_html=True)
@@ -889,26 +889,28 @@ def process_contract_sync(uploaded_file, user_email: str):
         except ImportError:
             pass
         
-        # Smart handling based on document type
+        # Enhanced handling based on formal contract elements
         if not is_legal_doc:
             score = detection_details.get('score', 0)
             reason = detection_details.get('reason', '')
+            essential_elements = detection_details.get('essential_elements', 0)
+            confidence = detection_details.get('confidence', 'none')
             
-            # Clear rejection for academic, code, and obviously non-legal files
-            if score <= -80 or any(keyword in reason.lower() for keyword in ['academic', 'assignment', 'code', 'technical']):
+            # STRICT rejection for obvious non-legal files
+            if score <= -80 or any(keyword in reason.lower() for keyword in ['academic', 'assignment', 'code', 'technical', 'resume', 'personal']):
                 return {
                     'success': False, 
                     'error': f"Document type detected: {reason}. Please upload a legal contract, agreement, or official form."
                 }
             
-            # For borderline documents, provide educational analysis
-            elif score > -50:
+            # For documents with some legal elements but insufficient for contracts
+            elif essential_elements >= 1 or score > -50:
                 return handle_educational_analysis(uploaded_file, user_email, text, detection_details)
             
             else:
                 return {
                     'success': False,
-                    'error': f"Document not recognized as legal. {reason}. Please upload contracts, agreements, or legal forms."
+                    'error': f"Document lacks essential contract elements. {reason}. Please upload formal legal contracts or agreements."
                 }
         
         # Enhanced risk analysis with RAG
@@ -1039,7 +1041,7 @@ The contract {'requires immediate legal review and significant negotiation' if r
         }
         
     except Exception as e:
-        st.error(f"❌ Analysis failed: {str(e)}")
+        st.error(f"Analysis failed: {str(e)}")
         return {'success': False, 'error': str(e)}
 
 def show_success_summary(process_result: Dict):
@@ -1265,7 +1267,7 @@ def main():
             
         with col2:
             st.info(f"**Fallback**: Local Processing")
-            st.code("Available: " + ("✅ Yes" if LOCAL_PROCESSING_AVAILABLE else "❌ No"))
+            st.code("Available: " + ("Yes" if LOCAL_PROCESSING_AVAILABLE else "No"))
         
         st.markdown("#### System Integration")
         st.success("▣ Frontend: Streamlit Cloud (pactify.streamlit.app)")
@@ -1276,11 +1278,11 @@ def main():
             try:
                 test_response = requests.get(f"{HF_API_BASE}/healthz", timeout=5)
                 if test_response.status_code == 200:
-                    st.success("✅ HF Space AI backend is online and responding!")
+                    st.success("HF Space AI backend is online and responding!")
                 else:
-                    st.error(f"❌ HF Space returned status: {test_response.status_code}")
+                    st.error(f"HF Space returned status: {test_response.status_code}")
             except Exception as e:
-                st.error(f"❌ HF Space connection failed: {e}")
+                st.error(f"HF Space connection failed: {e}")
                 st.info("Will fallback to local processing if available")
 
 if __name__ == "__main__":
