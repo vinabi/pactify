@@ -1,4 +1,4 @@
-# Pactify: AI-Powered Contract Risk Analysis Platform
+# **[↕Pactify](https://pactify.streamlit.app/)** : AI-Powered Contract Risk Analysis Platform
 
 Pactify is a comprehensive contract risk analysis platform that combines artificial intelligence with legal expertise to automatically review, analyze, and flag potential risks in legal documents. The system employs a sophisticated 5-stage pipeline to process contracts and provide actionable insights to legal professionals.
 
@@ -9,10 +9,16 @@ Pactify is a comprehensive contract risk analysis platform that combines artific
 - **Technology**: Streamlit-based web application
 - **Purpose**: User interface for document upload, analysis visualization, and results display
 
+### Frontend
+![Upload Interface](app_ui/front_end.png)
+
 ### Backend: Hugging Face Spaces
 - **Deployment URL**: `https://vinabi-pactify.hf.space`
 - **Technology**: FastAPI-based REST API
 - **Purpose**: AI processing engine, contract analysis pipeline, email delivery
+
+### Backend 
+![Upload Interface](app_ui/back_end.png)
 
 ## Project Structure
 
@@ -429,4 +435,6 @@ enableCORS = false
 - Comprehensive logging for issue diagnosis
 - Community support via GitHub issues
 
-This comprehensive documentation provides everything needed to understand, deploy, and maintain the Pactify contract analysis platform. The system represents a sophisticated integration of AI technology with practical legal document processing needs, solving real-world challenges in contract review and risk assessment.
+This comprehensive documentation provides everything needed to understand, deploy, and maintain the Pactify contract analysis platform. The system represents a sophisticated integration of AI technology with practical legal document processing needs, solving real-world challenges in contract review and risk assessment. HUMAN REVIEW IS SURE THING.
+
+#### If you find this project helpful, don’t forget to star the repo! 🎀
