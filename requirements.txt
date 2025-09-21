@@ -1,46 +1,24 @@
-# Core Streamlit and FastAPI
-streamlit>=1.28.0
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
-
-# Pydantic and validation
-pydantic>=2.0.0
-pydantic-settings>=2.0.0
-python-multipart>=0.0.6
-
-# HTTP and API
-httpx>=0.25.0
-requests>=2.31.0
-
-# Logging
-loguru>=0.7.0
-
-# LLM and AI
-langchain>=0.0.350
-langgraph>=0.0.40
-langchain-groq>=0.0.3
-
-# Vector database and embeddings
-chromadb>=0.4.15
-sentence-transformers>=2.2.2
-scikit-learn>=1.3.0
-
-# Document processing
-pypdf>=3.17.0
-python-docx>=1.1.0
-pdfplumber>=0.9.0
-pymupdf>=1.23.0
-
-# Email and external services
-sendgrid>=6.11.0
-
-# Data processing
-pandas>=2.0.0
-numpy>=1.24.0
-
-# Environment and config
-python-dotenv>=1.0.0
-orjson>=3.9.0
-
-# Optional dependencies (graceful degradation if missing)
-# docusign-esign>=3.22.0
+streamlit
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+python-multipart
+httpx
+requests
+loguru
+langchain
+langgraph
+langchain-groq
+chromadb
+sentence-transformers
+scikit-learn
+pypdf
+python-docx
+pdfplumber
+pymupdf
+sendgrid
+pandas
+numpy
+python-dotenv
+orjson
