@@ -2,33 +2,111 @@
 from __future__ import annotations
 import io, re
 from typing import List, Tuple
+from loguru import logger
 
 def _read_pdf(raw: bytes) -> str:
-    # Try pypdf first
+    """Enhanced PDF reading with multiple extraction strategies"""
+    
+    def clean_text(text: str) -> str:
+        """Clean extracted PDF text"""
+        if not text:
+            return ""
+        # Remove excessive whitespace
+        text = re.sub(r'\s+', ' ', text)
+        # Fix common PDF extraction issues
+        text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)  # Add spaces between joined words
+        text = re.sub(r'(\d)([A-Za-z])', r'\1 \2', text)  # Space between numbers and letters
+        text = text.replace('•', '-').replace('◦', '-')  # Normalize bullet points
+        return text.strip()
+    
+    extraction_methods = []
+    
+    # Method 1: pypdf with enhanced extraction
     try:
         from pypdf import PdfReader
         rd = PdfReader(io.BytesIO(raw))
         parts = []
         for pg in rd.pages:
-            parts.append(pg.extract_text() or "")
+            # Try multiple extraction strategies
+            text = pg.extract_text() or ""
+            if not text and hasattr(pg, 'extract_text'):
+                # Alternative extraction for difficult PDFs
+                try:
+                    text = pg.extract_text(extraction_mode="layout") or ""
+                except:
+                    pass
+            parts.append(clean_text(text))
+        
         txt = "\n".join(parts).strip()
-        if len(txt) >= 200:
-            return txt
+        if len(txt) >= 150:  # Lowered threshold
+            extraction_methods.append(("pypdf", txt, len(txt)))
     except Exception:
         pass
-    # Fallback pdfplumber
+    
+    # Method 2: pdfplumber with table extraction
     try:
         import pdfplumber
         with pdfplumber.open(io.BytesIO(raw)) as pdf:
             parts = []
             for pg in pdf.pages:
-                parts.append(pg.extract_text() or "")
+                text = ""
+                # Extract regular text
+                page_text = pg.extract_text() or ""
+                if page_text:
+                    text += clean_text(page_text) + "\n"
+                
+                # Extract tables if present
+                tables = pg.extract_tables()
+                for table in tables:
+                    for row in table:
+                        if row and any(cell for cell in row if cell):
+                            text += " | ".join(str(cell or "") for cell in row) + "\n"
+                
+                parts.append(text.strip())
+        
         txt = "\n".join(parts).strip()
-        if len(txt) >= 200:
-            return txt
+        if len(txt) >= 150:
+            extraction_methods.append(("pdfplumber", txt, len(txt)))
     except Exception:
         pass
-    raise ValueError("PDF contains little/no extractable text (likely scanned).")
+    
+    # Method 3: PyMuPDF (fallback for complex layouts)
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(stream=raw, filetype="pdf")
+        parts = []
+        for page in doc:
+            text = page.get_text()
+            parts.append(clean_text(text))
+        doc.close()
+        
+        txt = "\n".join(parts).strip()
+        if len(txt) >= 150:
+            extraction_methods.append(("pymupdf", txt, len(txt)))
+    except Exception:
+        pass
+    
+    # Choose the best extraction (longest text)
+    if extraction_methods:
+        best_method = max(extraction_methods, key=lambda x: x[2])
+        logger.info(f"PDF extracted using {best_method[0]}: {best_method[2]} characters")
+        return best_method[1]
+    
+    # Last resort: check if it's an image-based PDF
+    try:
+        from pypdf import PdfReader
+        rd = PdfReader(io.BytesIO(raw))
+        page_count = len(rd.pages)
+        if page_count > 0:
+            # Check if pages have images (might be scanned)
+            sample_page = rd.pages[0]
+            if '/XObject' in sample_page.get('/Resources', {}):
+                raise ValueError(f"PDF appears to be image-based with {page_count} pages. Use OCR or convert to text-based PDF.")
+        raise ValueError("PDF contains no extractable text (likely scanned or corrupted).")
+    except Exception as e:
+        if "image-based" in str(e):
+            raise e
+        raise ValueError("PDF parsing failed completely - file may be corrupted or password protected.")
 
 def _read_docx(raw: bytes) -> str:
     try:
