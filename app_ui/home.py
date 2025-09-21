@@ -482,6 +482,45 @@ def analyze_document_gaps(text: str) -> List[str]:
     
     return gaps[:8]  # Top 8 most important gaps
 
+def convert_api_response_to_dashboard(api_result: Dict) -> Dict:
+    """Convert HF Space API response to dashboard format"""
+    
+    # Create dashboard-compatible analysis results
+    analysis_results = {}
+    
+    # Map API response to dashboard categories
+    risk_score = api_result.get('risk_score', 50)
+    critical_issues = api_result.get('critical_issues', [])
+    
+    if risk_score >= 70:
+        # High risk - populate liability and jurisdiction cards
+        analysis_results['liability'] = {
+            'issues': [{'label': 'High risk contract detected', 'severity': 'high'}],
+            'severity': 'high'
+        }
+        analysis_results['jurisdiction'] = {
+            'issues': [{'label': 'Risk assessment required', 'severity': 'high'}],
+            'severity': 'high'
+        }
+    elif risk_score >= 40:
+        # Medium risk - populate payment and compliance cards
+        analysis_results['payment_termination'] = {
+            'issues': [{'label': 'Terms require negotiation', 'severity': 'medium'}],
+            'severity': 'medium'
+        }
+        analysis_results['compliance'] = {
+            'issues': [{'label': 'Compliance review needed', 'severity': 'medium'}],
+            'severity': 'medium'
+        }
+    else:
+        # Low risk - show minimal issues
+        analysis_results['missing_provisions'] = {
+            'issues': [{'label': 'Minor improvements possible', 'severity': 'low'}],
+            'severity': 'low'
+        }
+    
+    return analysis_results
+
 def calculate_relevance_percentage(issues: List[Dict], severity: str) -> int:
     """Calculate relevance percentage based on issues and severity"""
     if not issues:
@@ -598,6 +637,125 @@ def map_to_dashboard_category(red_flag_category: str) -> str:
     }
     
     return mapping.get(red_flag_category.lower(), 'missing_provisions')
+
+def process_contract_via_api(uploaded_file, user_email: str):
+    """Process contract via HF Space API endpoint"""
+    
+    if not uploaded_file or not user_email:
+        return None
+    
+    try:
+        # Show processing status
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Stage 1: Preparing upload
+        status_text.text("Stage 1: Preparing upload to AI backend...")
+        progress_bar.progress(20)
+        time.sleep(0.5)
+        
+        file_bytes = uploaded_file.read()
+        
+        # Stage 2: Sending to HF Space API
+        status_text.text("Stage 2: Sending to HF Space AI backend...")
+        progress_bar.progress(40)
+        time.sleep(0.5)
+        
+        # Prepare API request
+        files = {"file": (uploaded_file.name, file_bytes, "application/octet-stream")}
+        params = {
+            "requester_email": user_email,
+            "jurisdiction": "General",
+            "strict_mode": "false"
+        }
+        
+        try:
+            # Call HF Space API
+            response = requests.post(
+                f"{API_BASE_URL}/review_pipeline",
+                files=files,
+                params=params,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                api_result = response.json()
+            else:
+                # Fallback to local processing if API fails
+                return process_contract_local_fallback(uploaded_file, user_email, progress_bar, status_text)
+                
+        except requests.exceptions.RequestException as e:
+            st.warning(f"HF Space API unavailable: {e}")
+            # Fallback to local processing
+            return process_contract_local_fallback(uploaded_file, user_email, progress_bar, status_text)
+        
+        # Stage 3: Processing results
+        status_text.text("Stage 3: Processing AI analysis results...")
+        progress_bar.progress(60)
+        time.sleep(0.5)
+        
+        # Stage 4: Categorizing for dashboard
+        status_text.text("Stage 4: Categorizing risks for dashboard...")
+        progress_bar.progress(80)
+        time.sleep(0.5)
+        
+        # Convert API response to dashboard format
+        analysis_results = convert_api_response_to_dashboard(api_result)
+        
+        # Stage 5: Complete
+        status_text.text("Analysis complete!")
+        progress_bar.progress(100)
+        time.sleep(0.5)
+        
+        # Clear progress indicators
+        progress_bar.empty()
+        status_text.empty()
+        
+        # Create result object
+        result = {
+            'filename': uploaded_file.name,
+            'contract_type': api_result.get('contract_type', 'Legal Document'),
+            'recommendation': api_result.get('recommendation', 'REVIEW'),
+            'risk_score': api_result.get('risk_score', 50),
+            'red_flags': [],  # Will be populated from API
+            'critical_issues': api_result.get('critical_issues', []),
+            'processing_time_seconds': api_result.get('processing_time', 2.0),
+            'executive_summary': f"""
+CONTRACT ANALYSIS VIA HF SPACE AI
+
+RECOMMENDATION: {api_result.get('recommendation', 'REVIEW')}
+Risk Score: {api_result.get('risk_score', 50)}/100
+
+Processed via: {API_BASE_URL}
+Document: {uploaded_file.name}
+Type: {api_result.get('contract_type', 'Legal Document')}
+
+Analysis completed with cloud AI backend.
+"""
+        }
+        
+        return {
+            'result': result,
+            'analysis_results': analysis_results,
+            'success': True,
+            'api_powered': True
+        }
+        
+    except Exception as e:
+        st.error(f"API processing failed: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+def process_contract_local_fallback(uploaded_file, user_email: str, progress_bar, status_text):
+    """Fallback to local processing if API unavailable"""
+    
+    if not LOCAL_PROCESSING_AVAILABLE:
+        return {
+            'success': False,
+            'error': 'Both cloud API and local processing unavailable. Please check your connection.'
+        }
+    
+    # Continue with existing local processing logic
+    return process_contract_sync(uploaded_file, user_email)
 
 def process_contract_sync(uploaded_file, user_email: str):
     """Process the uploaded contract through the pipeline (synchronous version)"""
@@ -883,9 +1041,9 @@ def main():
             # Process button
             if st.button("Start Analysis", type="primary", use_container_width=True):
                 if uploaded_file and user_email and "@" in user_email:
-                    # Process the contract
-                    with st.spinner("Processing contract with AI knowledge base..."):
-                        process_result = process_contract_sync(uploaded_file, user_email)
+                    # Process the contract via HF Space API
+                    with st.spinner("Processing contract via HF Space AI backend..."):
+                        process_result = process_contract_via_api(uploaded_file, user_email)
                     
                     if process_result and process_result.get('success'):
                         st.session_state.analysis_results = process_result['analysis_results']
@@ -912,7 +1070,10 @@ def main():
                                 
                             st.success("Comprehensive enhancement guide sent to your email!")
                         else:
-                            st.success("Analysis complete! AI-enhanced report sent to your email.")
+                            # Show API source
+                            api_powered = process_result.get('api_powered', False)
+                            source_msg = "HF Space AI" if api_powered else "Local AI" 
+                            st.success(f"Analysis complete via {source_msg}! Report sent to your email.")
                         
                         st.rerun()
                     elif process_result and not process_result.get('success'):
@@ -1029,10 +1190,33 @@ def main():
     
     with tab3:  # Automate tab
         st.markdown("### Automation Settings")
-        st.info("Email monitoring and automated processing features coming soon!")
         
-        if st.button("Test Email Integration"):
-            st.success("Email integration test successful!")
+        st.markdown("#### AI Backend Configuration")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.info(f"**Primary Backend**: HF Space AI")
+            st.code(f"Endpoint: {HF_API_BASE}")
+            
+        with col2:
+            st.info(f"**Fallback**: Local Processing")
+            st.code("Available: " + ("✅ Yes" if LOCAL_PROCESSING_AVAILABLE else "❌ No"))
+        
+        st.markdown("#### System Integration")
+        st.success("▣ Frontend: Streamlit Cloud (pactify.streamlit.app)")
+        st.success("▣ AI Backend: HF Space (vinabi-pactify.hf.space)")
+        st.success("▣ Email Service: SendGrid Integration")
+        
+        if st.button("Test HF Space Connection"):
+            try:
+                test_response = requests.get(f"{HF_API_BASE}/healthz", timeout=5)
+                if test_response.status_code == 200:
+                    st.success("✅ HF Space AI backend is online and responding!")
+                else:
+                    st.error(f"❌ HF Space returned status: {test_response.status_code}")
+            except Exception as e:
+                st.error(f"❌ HF Space connection failed: {e}")
+                st.info("Will fallback to local processing if available")
 
 if __name__ == "__main__":
     main()
