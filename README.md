@@ -20,6 +20,10 @@ Pactify is a comprehensive contract risk analysis platform that combines artific
 ### Backend 
 ![Upload Interface](app_ui/back_end.png)
 
+### Production Pipeline
+This flow is a complete/production-ready, modular view of graph and nodes of whole workflow.
+![Upload Interface](app_ui/graph.png)
+
 ## Project Structure
 
 ```
