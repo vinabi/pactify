@@ -8,21 +8,16 @@ def normalize_contract_text(text: str) -> str:
     """Enhanced text normalization for contract analysis"""
     if not text:
         return ""
-    
     # Fix encoding issues
     text = text.encode('utf-8', errors='ignore').decode('utf-8')
-    
     # Remove common PDF artifacts
     text = re.sub(r'\n\s*\d+\s*\n', '\n', text)  # Page numbers
-    text = re.sub(r'\n\s*Page\s+\d+\s+of\s+\d+\s*\n', '\n', text, re.I)  # Page headers
-    
+    text = re.sub(r'\n\s*Page\s+\d+\s+of\s+\d+\s*\n', '\n', text, flags=re.I)  # Page headers
     # Join hyphenated words across lines
     text = re.sub(r'-\s*\n\s*', '', text)
-    
     # Collapse excessive whitespace but preserve structure
     text = re.sub(r'\n\s*\n\s*\n', '\n\n', text)  # Max 2 newlines
-    text = re.sub(r'[ \t]+', ' ', text)  # Collapse spaces/tabs
-    
+    text = re.sub(r'[ \t]+', ' ', text)           # Collapse spaces/tabs
     # Normalize to lowercase for analysis
     return " ".join(text.split()).lower()
 
@@ -39,7 +34,7 @@ STRONG_CONTRACT_SIGNALS = [
     r"\b(terms\s+and\s+conditions|terms\s+of\s+(service|use))\b",
     r"\b(statement\s+of\s+work|scope\s+of\s+work|sow)\b",
     
-    # Legal forms and documents
+    # Legal forms and documents (kept from your original file)
     r"\b(i-130|i-140|i-485|i-765|i-131)\b",  # Immigration forms
     r"\b(petition\s+for|application\s+for|form\s+i-\d+)\b",
     r"\b(uscis|immigration|petition|beneficiary|petitioner)\b",
@@ -106,142 +101,179 @@ NON_CONTRACT_SIGNALS = [
 ]
 
 def looks_like_contract_v2(text: str) -> Tuple[bool, Dict[str, Any]]:
-    """LIBERAL contract detection - analyzes ANY potentially legal document"""
-    if not text or len(text.strip()) < 50:
+    """FORMAL LEGAL CONTRACT CLASSIFIER - Hardened gates + 'legal but not a contract' path"""
+    if not text or len(text.strip()) < 80:
         return False, {"score": 0, "reason": "Document too short for analysis"}
-    
-    # Enhanced normalization with structure preservation
+
     normalized = normalize_contract_text(text)
     words = len(normalized.split())
-    
-    # SMART REJECTION: Identify obvious non-legal documents with context
-    non_legal_indicators = [
-        # Academic/Educational
-        (r"\b(assignment|homework|student|professor|course|syllabus|grade|semester|exam|quiz|tutorial|lesson)\b", "academic_assignment"),
-        (r"\b(essay|research\s+paper|thesis|dissertation|abstract|bibliography|citation)\b", "academic_paper"),
-        (r"\b(university|college|school|education|academic|study|student\s+id)\b", "educational_content"),
-        
-        # Technical/Code
-        (r"\bimport\s+\w+", "code_file"),
-        (r"\bfrom\s+\w+\s+import", "code_file"),
-        (r"\bdef\s+\w+\s*\(", "code_file"),
-        (r"\bclass\s+\w+", "code_file"),
-        (r"\b(npm|pip|yarn)\s+install", "package_manager"),
-        (r"\bversion\s*[:=]\s*[\"'][\d\.]+[\"']", "config_file"),
-        
-        # Business/Marketing (not legal)
-        (r"\b(blog|article|news|press\s+release|marketing|advertisement|brochure)\b", "marketing_content"),
-        (r"\b(recipe|cooking|ingredient|instruction|how\s+to\s+make)\b", "instructional_content"),
-        (r"\b(invoice|receipt|bill|purchase\s+order|shipping)\b", "business_transaction"),
-        
-        # Personal/Informal
-        (r"\b(dear\s+friend|hi\s+\w+|hello|thanks|best\s+regards|sincerely)\b", "personal_communication"),
-        (r"\b(email|message|note|memo|reminder)\b", "informal_communication")
+
+    # --- Anti-patterns (non-contract content) ---
+    is_code = bool(re.search(r"\b(def\s+\w+\(|class\s+\w+|import\s+\w+|from\s+\w+\s+import)\b", normalized))
+    is_resume_like = bool(re.search(r"\b(resume|curriculum\s+vitae|cv|skills|experience|education|references)\b", normalized))
+    is_assignment_or_essay = bool(re.search(r"\b(assignment|submitted\s+to|course\s+code|abstract|introduction|conclusion|references)\b", normalized))
+
+    # --- Legal markers (non-contract legal docs should still be analyzed) ---
+    legal_markers_patterns = [
+        r"\baffidavit\b", r"\bpetition\b", r"\bmotion\b", r"\bord(?:er)?\b",
+        r"\bstatute\b", r"\bsection\s+\d+\b", r"\btitle\s+\d+\b", r"\bcode\s+of\s+federal\s+regulations\b",
+        r"\bpolicy\b", r"\bcompliance\b", r"\bact\b", r"\bregulation\b", r"\bbylaws?\b", r"\bnotice\b",
+        r"\bgovernment\s+form\b", r"\bofficial\s+form\b", r"\bform\s+i-\d+\b", r"\buscis\b",
+        r"\bcourt\b", r"\bjurisdiction\b", r"\barbitration\b", r"\bgoverning\s+law\b"
     ]
-    
-    # Check document type with context scoring
-    non_legal_score = 0
-    detected_type = "unknown"
-    
-    for pattern, doc_type in non_legal_indicators:
-        matches = len(re.findall(pattern, normalized, re.I))
-        if matches >= 2:  # Multiple instances
-            non_legal_score += matches
-            detected_type = doc_type
-    
-    # Check for legal terms
-    has_legal_terms = bool(re.search(r"\b(legal|law|agreement|contract|party|liability|indemnif|jurisdiction|petition|form|uscis|immigration|employment|confidential|proprietary|signature|witness|whereas|therefore|covenant|warrant)\b", normalized))
-    
-    # SMART REJECTION: Reject if clearly non-legal AND no strong legal terms
-    if non_legal_score >= 5 and not has_legal_terms:
-        return False, {"score": -100, "reason": f"{detected_type.replace('_', ' ').title()} detected - not a legal document"}
-    
-    # Special case: Academic assignments with some legal words (common in law school)
-    if detected_type in ["academic_assignment", "academic_paper", "educational_content"]:
-        academic_legal_terms = re.findall(r"\b(case\s+study|legal\s+analysis|court|law\s+review|legal\s+brief|constitutional|statute)\b", normalized)
-        if len(academic_legal_terms) < 3:  # Not enough legal academic content
-            return False, {"score": -80, "reason": "Academic assignment - not a legal contract"}
-    
-    # LIBERAL APPROACH: Assume everything else could be legal and analyze it
-    # Look for ANY legal indicators
-    
-    # Legal document indicators (very broad)
-    legal_indicators = []
-    
-    # Government forms and legal documents
-    if re.search(r"\b(form|i-\d+|uscis|immigration|petition|application|department|government|federal|state|court|legal|law)\b", normalized):
-        legal_indicators.append("government_form")
-    
-    # Contract language (even basic)
-    if re.search(r"\b(agreement|contract|terms|party|parties|shall|will|obligation|right|responsibility)\b", normalized):
-        legal_indicators.append("contract_language")
-    
-    # Legal relationships
-    if re.search(r"\b(employer|employee|client|contractor|vendor|supplier|customer|petitioner|beneficiary|plaintiff|defendant)\b", normalized):
-        legal_indicators.append("legal_relationships")
-    
-    # Legal concepts
-    if re.search(r"\b(liability|indemnif|confidential|proprietary|intellectual\s+property|payment|compensation|termination|breach|compliance|jurisdiction|governing\s+law)\b", normalized):
-        legal_indicators.append("legal_concepts")
-    
-    # Legal structure
-    if re.search(r"\b(whereas|witnesseth|now\s+therefore|in\s+consideration|effective\s+date|signature|executed|binding|enforceable)\b", normalized):
-        legal_indicators.append("legal_structure")
-    
-    # Calculate liberal score
+    legal_markers = sum(1 for p in legal_markers_patterns if re.search(p, normalized, re.I))
+
+    has_governing_law = bool(re.search(r"\b(governing\s+law|jurisdiction|venue)\b", normalized))
+    has_execution = bool(re.search(r"\b(sign|signature|executed|duly\s+authorized)\b|\b(effective|commencement)\s+date\b", normalized))
+
+    # If it's obviously code/resume/assignment and NOT legal, reject fast.
+    if (is_code or is_resume_like or is_assignment_or_essay) and legal_markers == 0:
+        return False, {
+            "score": -50,
+            "reason": "Blocked by anti-patterns (non-legal document)",
+            "flags": {"code": is_code, "resume_like": is_resume_like, "assignment_or_essay": is_assignment_or_essay},
+            "analysis_recommendation": "reject",
+            "detected_type": "unknown",
+            "word_count": words
+        }
+
+    # -------- Essential elements (contracts) --------
+    offer_acceptance_patterns = [
+        r"\b(offer|propose|tender)\b.*\b(accept|agree|consent)\b",
+        r"\b(hereby\s+agree|agree\s+to|acceptance\s+of)\b",
+        r"\b(this\s+agreement|the\s+parties\s+agree)\b",
+        r"\b(offer\s+is\s+accepted|acceptance\s+of\s+offer)\b"
+    ]
+    has_offer_acceptance = any(re.search(p, normalized, re.I) for p in offer_acceptance_patterns)
+
+    consideration_patterns = [
+        r"\b(consideration|in\s+exchange\s+for|payment|compensation|fee|salary|remuneration)\b",
+        r"\b(valuable\s+consideration|good\s+and\s+valuable\s+consideration)\b",
+        r"\b(mutual\s+covenants|mutual\s+agreements|reciprocal\s+obligations)\b",
+        r"\b(\$|dollar|payment|price|cost|fee).*\b(amount|sum|total)\b",
+        r"\b(services|work|deliverable|performance).*\b(exchange|return|compensation)\b",
+        r"\b(monthly|annual|hourly).*\b(rate|salary|fee|payment)\b"
+    ]
+    has_consideration = any(re.search(p, normalized, re.I) for p in consideration_patterns)
+
+    legal_intent_patterns = [
+        r"\b(legally\s+binding|binding\s+agreement|enforceable)\b",
+        r"\b(subject\s+to\s+law|governed\s+by\s+law|legal\s+effect)\b",
+        r"\b(breach|violation|default).*\b(remedy|damages|penalty)\b",
+        r"\b(court|jurisdiction|dispute\s+resolution|arbitration)\b",
+        r"\b(whereas|witnesseth|now\s+therefore)\b",
+        r"\b(agreement|contract|terms).*\b(binding|enforceable|legal)\b",
+        r"\b(liability|indemnif|damages|remedy)\b"
+    ]
+    has_legal_intent = any(re.search(p, normalized, re.I) for p in legal_intent_patterns)
+
+    capacity_patterns = [
+        r"\b(party|parties|between.*\sand)\b",
+        r"\b(company|corporation|llc|inc|ltd|individual|person)\b",
+        r"\b(contractor|client|vendor|supplier|employer|employee)\b",
+        r"\b(authorized|duly\s+authorized|legal\s+capacity)\b"
+    ]
+    has_capacity = any(re.search(p, normalized, re.I) for p in capacity_patterns)
+
+    essential_elements = [has_offer_acceptance, has_consideration, has_legal_intent, has_capacity]
+    essential_count = sum(1 for x in essential_elements if x)
+
+    # -------- Structural gate --------
+    has_parties = bool(re.search(r"\b(the\s+parties|party\s+a|party\s+b|client|contractor|company|vendor)\b", normalized))
+    has_structure = bool(re.search(r"\b(whereas|witnesseth|now\s+therefore|in\s+consideration)\b", normalized))
+    sections = len(re.findall(r"\b(section|clause|article|paragraph)\s+\d+\b", normalized))
+    structural_ok = has_parties and (has_structure or sections >= 2) and has_execution
+
+    # -------- Clause-family gate: must hit at least 2 of 6 core families --------
+    families = {
+        "liability": r"\blimit(ation)?\s+of\s+liability\b|\bliability\s+cap\b",
+        "indemnity": r"\bindemnif(y|ication)\b|\bhold\s+harmless\b",
+        "governing_law": r"\b(governing\s+law|venue|jurisdiction)\b",
+        "termination": r"\b(termination|renewal|expiration|cancellation)\b",
+        "confidentiality": r"\b(confidential(ity)?|non[- ]?disclosure)\b",
+        "payment": r"\b(payment|compensation|fees?|invoice)\b",
+    }
+    core_hits = sum(1 for pat in families.values() if re.search(pat, normalized, re.I))
+    clause_ok = core_hits >= 2
+
+    # -------- Scoring (kept for diagnostics) --------
+    structure_score = 0
+    for p in [r"\b(agreement|contract)\b.*\b(entered\s+into|made\s+and\s+entered)\b",
+              r"\b(effective\s+date|commencement\s+date|term\s+of\s+agreement)\b",
+              r"\b(signature|executed|signed|witness\s+whereof)\b",
+              r"\b(section|clause|article|paragraph)\s+\d+",
+              r"\b(definitions?|means|shall\s+mean)\b"]:
+        if re.search(p, normalized, re.I): structure_score += 10
+
+    substantive_score = 0
+    for p in [r"\b(shall|will|must|required\s+to|obligated\s+to)\b",
+              r"\b(rights|obligations|duties|responsibilities)\b",
+              r"\b(performance|delivery|completion|fulfillment)\b",
+              r"\b(termination|expiration|renewal|cancellation)\b",
+              r"\b(liability|damages|indemnif|warranty|representation)\b"]:
+        substantive_score += min(len(re.findall(p, normalized, re.I)), 5)
+
     score = 0
-    
-    # Base score for any legal indicators
-    score += len(legal_indicators) * 20
-    
-    # Length bonus (longer docs more likely to be substantial)
-    if words > 100:
-        score += 10
-    if words > 500:
-        score += 20
-    if words > 1000:
-        score += 30
-    
-    # Pattern matching for additional signals
-    strong_matches = []
-    medium_matches = []
-    
-    for pattern in STRONG_CONTRACT_SIGNALS:
-        if re.search(pattern, normalized, re.I):
-            strong_matches.append(pattern)
-            score += 25
-    
-    for pattern in MEDIUM_CONTRACT_SIGNALS:
-        if re.search(pattern, normalized, re.I):
-            medium_matches.append(pattern)
-            score += 15
-    
-    # BALANCED: Analyze if it has MEANINGFUL legal characteristics
-    is_legal_document = (len(legal_indicators) >= 2) or (score > 40) or (len(strong_matches) > 0) or (has_legal_terms and words > 300)
-    
-    # Calculate confidence level
-    if score >= 80:
-        confidence = "high"
-    elif score >= 40:
-        confidence = "medium"  
-    elif score >= 20:
-        confidence = "low"
-    else:
-        confidence = "minimal"
-    
+    score += 25 if has_offer_acceptance else 0
+    score += 25 if has_consideration else 0
+    score += 30 if has_legal_intent else 0
+    score += 20 if has_capacity else 0
+    score += min(structure_score, 30)
+    score += min(substantive_score, 25)
+
+    # Length bonus (correct order)
+    if words > 2000: score += 10
+    elif words > 1000: score += 7
+    elif words > 500: score += 4
+
+    # -------- Final decision with "legal-but-not-contract" handling --------
+    essentials_ok = essential_count >= 3
+    is_contract = bool(structural_ok and clause_ok and essentials_ok)
+
+    if not is_contract:
+        # If it looks like a legal document (markers present or legal intent), analyze but mark non-contract
+        if legal_markers > 0 or has_legal_intent or has_governing_law:
+            details = {
+                "score": score,
+                "confidence": "none",
+                "essential_elements": essential_count,
+                "offer_acceptance": has_offer_acceptance,
+                "consideration": has_consideration,
+                "legal_intent": has_legal_intent,
+                "capacity": has_capacity,
+                "formal_structure": structural_ok,
+                "substantive_terms": clause_ok,
+                "word_count": words,
+                "detected_type": "legal_document",
+                "analysis_recommendation": "analyze_non_contract",
+                "contract_strength": "none",
+                "anchors": {"governing_law": has_governing_law, "execution": has_execution},
+                "core_clause_hits": core_hits,
+                "legal_markers": legal_markers,
+                "reason": "legal document detected but failed contract gates"
+            }
+            return False, details
+
     details = {
         "score": score,
-        "confidence": confidence,
-        "legal_indicators": legal_indicators,
-        "strong_matches": len(strong_matches),
-        "medium_matches": len(medium_matches), 
+        "confidence": ("high" if essential_count == 4 else "medium") if is_contract else "none",
+        "essential_elements": essential_count,
+        "offer_acceptance": has_offer_acceptance,
+        "consideration": has_consideration,
+        "legal_intent": has_legal_intent,
+        "capacity": has_capacity,
+        "formal_structure": structural_ok,
+        "substantive_terms": clause_ok,
         "word_count": words,
-        "has_legal_terms": has_legal_terms,
-        "analysis_recommendation": "analyze" if is_legal_document else "reject",
-        "detected_type": "legal_document" if is_legal_document else "non_legal"
+        "detected_type": "contract" if is_contract else "unknown",
+        "analysis_recommendation": "analyze" if is_contract else "reject",
+        "contract_strength": ("high" if essential_count == 4 else "medium") if is_contract else "none",
+        "anchors": {"governing_law": has_governing_law, "execution": has_execution},
+        "core_clause_hits": core_hits,
+        "legal_markers": legal_markers,
+        "reason": "passed all gates" if is_contract else "failed gates"
     }
-    
-    return is_legal_document, details
+    return is_contract, details
 
 # ---------- COMPREHENSIVE RED FLAGS ----------
 RED_FLAGS: List[Dict[str, Any]] = [
@@ -370,7 +402,7 @@ def find_red_flags(text: str) -> List[Dict[str, Any]]:
         if rf.get("needs_absence_check"):
             # Check for absence of required clauses
             if rf["category"] == "liability":
-                if not re.search(r"\blimit(?:ation)?\s+of\s+liability|liability\s+(?:cap|limit)", normalized):
+                if not re.search(r"\blimit(?:ation)?\s+of\s+liability|liability\s+(?:cap|limit)", normalized, re.I):
                     hits.append({
                         "label": rf["label"], 
                         "severity": rf["severity"],
@@ -512,7 +544,7 @@ def compare_to_templates(contract_text: str, vect_client=None) -> Dict[str, Any]
 
 def analyze_template_deviations(text: str, contract_type: str) -> List[Dict[str, Any]]:
     """Identify clauses that deviate from standard templates"""
-    deviations = []
+    deviations: List[Dict[str, Any]] = []
     
     # Standard clause expectations by contract type
     expected_clauses = {
@@ -596,14 +628,13 @@ def calculate_template_coverage(text: str, matches: List[Dict]) -> float:
     if not matches:
         return 0.0
         
-    # Simple heuristic: average similarity scores weighted by length
     total_score = sum(match.get("similarity_score", 0) for match in matches)
     return min(total_score / len(matches), 1.0) if matches else 0.0
 
 
 def generate_template_recommendations(deviations: List[Dict]) -> List[str]:
     """Generate recommendations based on template analysis"""
-    recommendations = []
+    recommendations: List[str] = []
     
     missing_count = sum(1 for d in deviations if d["type"] == "missing_clause")
     unusual_count = sum(1 for d in deviations if d["type"] == "unusual_clause")
