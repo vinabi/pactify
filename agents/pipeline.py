@@ -180,7 +180,7 @@ Clause text:
                 for title, snippet in retrieve_precedents(vect_client, clause_text, k=req.top_k_precedents):
                     precedent_snips.append(f"### {title}\n{snippet}")
             precedents_block = ("\n\nPrecedents (optional):\n" + "\n\n".join(precedent_snips)) if precedent_snips else ""
-            redline_in = f"{risk_block}{hint}Clause heading: {heading}\n\nClause text:\n{clause_text[:5000]}\n{precedents_block}"
+            redline_in = f"{risk_block}Clause heading: {heading}\n\nClause text:\n{clause_text[:5000]}\n{precedents_block}"
             red: RedlineOut = call_json(
                 llm, REDLINE_PROMPT, redline_in, RedlineOut,
                 run_name="RedlineSuggestor", base_cfg=base_cfg,
@@ -210,3 +210,4 @@ Clause text:
 
     logger.info(f"File={filename} Risks(H/M/L)=({high}/{med}/{low})")
     return AnalyzeResponse(summary=summary, high_risk_count=high, medium_risk_count=med, low_risk_count=low, clauses=clauses)
+
