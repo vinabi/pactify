@@ -101,180 +101,175 @@ NON_CONTRACT_SIGNALS = [
 ]
 
 def looks_like_contract_v2(text: str) -> Tuple[bool, Dict[str, Any]]:
-    """FORMAL LEGAL CONTRACT CLASSIFIER - Hardened gates + 'legal but not a contract' path"""
-    if not text or len(text.strip()) < 80:
+    """FORMAL LEGAL CONTRACT CLASSIFIER — rigid, with a 'legal but not a contract' path"""
+    if not text or len(text.strip()) < 50:
         return False, {"score": 0, "reason": "Document too short for analysis"}
 
-    normalized = normalize_contract_text(text)
+    # --- Normalize (preserve light structure) ---
+    def _normalize(s: str) -> str:
+        s = s.encode("utf-8", errors="ignore").decode("utf-8")
+        s = re.sub(r'\n\s*\d+\s*\n', '\n', s)
+        s = re.sub(r'\n\s*Page\s+\d+\s+of\s+\d+\s*\n', '\n', s, flags=re.I)
+        s = re.sub(r'-\s*\n\s*', '', s)              # join hyphenated words across lines
+        s = re.sub(r'\n\s*\n\s*\n+', '\n\n', s)      # cap blank lines
+        s = re.sub(r'[ \t]+', ' ', s)                # collapse spaces/tabs
+        return " ".join(s.split()).lower()
+
+    normalized = _normalize(text)
     words = len(normalized.split())
 
-    # --- Anti-patterns (non-contract content) ---
-    is_code = bool(re.search(r"\b(def\s+\w+\(|class\s+\w+|import\s+\w+|from\s+\w+\s+import)\b", normalized))
-    is_resume_like = bool(re.search(r"\b(resume|curriculum\s+vitae|cv|skills|experience|education|references)\b", normalized))
-    is_assignment_or_essay = bool(re.search(r"\b(assignment|submitted\s+to|course\s+code|abstract|introduction|conclusion|references)\b", normalized))
-
-    # --- Legal markers (non-contract legal docs should still be analyzed) ---
-    legal_markers_patterns = [
-        r"\baffidavit\b", r"\bpetition\b", r"\bmotion\b", r"\bord(?:er)?\b",
-        r"\bstatute\b", r"\bsection\s+\d+\b", r"\btitle\s+\d+\b", r"\bcode\s+of\s+federal\s+regulations\b",
-        r"\bpolicy\b", r"\bcompliance\b", r"\bact\b", r"\bregulation\b", r"\bbylaws?\b", r"\bnotice\b",
-        r"\bgovernment\s+form\b", r"\bofficial\s+form\b", r"\bform\s+i-\d+\b", r"\buscis\b",
-        r"\bcourt\b", r"\bjurisdiction\b", r"\barbitration\b", r"\bgoverning\s+law\b"
+    # --- Strict "obvious non-legal" rejection (resume, code, homework, etc.) ---
+    non_legal_patterns = [
+        # academic
+        r"\b(assignment|homework|professor|semester|syllabus|quiz|midterm|final exam)\b",
+        r"\b(essay|thesis|dissertation|bibliography|references)\b",
+        # code / package metadata
+        r"\bdef\s+\w+\s*\(|\bclass\s+\w+\s*:|\bimport\s+\w+|\bfrom\s+\w+\s+import\b",
+        r"\bpackage\.json\b|\brequirements\.txt\b|\bsetup\.py\b|\bREADME\.md\b",
+        r"\bnpm\s+install\b|\byarn\s+add\b|\bpip\s+install\b",
+        # resume / personal docs
+        r"\b(resume|curriculum\s+vitae|cv|cover\s+letter)\b",
+        r"\b(dear\s+hiring\s+manager|objective|skills|experience|education)\b",
     ]
-    legal_markers = sum(1 for p in legal_markers_patterns if re.search(p, normalized, re.I))
-
-    has_governing_law = bool(re.search(r"\b(governing\s+law|jurisdiction|venue)\b", normalized))
-    has_execution = bool(re.search(r"\b(sign|signature|executed|duly\s+authorized)\b|\b(effective|commencement)\s+date\b", normalized))
-
-    # If it's obviously code/resume/assignment and NOT legal, reject fast.
-    if (is_code or is_resume_like or is_assignment_or_essay) and legal_markers == 0:
+    non_legal_hits = sum(1 for p in non_legal_patterns if re.search(p, normalized, re.I))
+    if non_legal_hits >= 2:
         return False, {
-            "score": -50,
-            "reason": "Blocked by anti-patterns (non-legal document)",
-            "flags": {"code": is_code, "resume_like": is_resume_like, "assignment_or_essay": is_assignment_or_essay},
-            "analysis_recommendation": "reject",
-            "detected_type": "unknown",
+            "score": -120,
+            "reason": "Non-legal content detected (code/resume/assignment)",
+            "detected_type": "non_legal",
+            "essential_elements": 0,
+            "confidence": "none",
             "word_count": words
         }
 
-    # -------- Essential elements (contracts) --------
-    offer_acceptance_patterns = [
-        r"\b(offer|propose|tender)\b.*\b(accept|agree|consent)\b",
-        r"\b(hereby\s+agree|agree\s+to|acceptance\s+of)\b",
-        r"\b(this\s+agreement|the\s+parties\s+agree)\b",
-        r"\b(offer\s+is\s+accepted|acceptance\s+of\s+offer)\b"
-    ]
-    has_offer_acceptance = any(re.search(p, normalized, re.I) for p in offer_acceptance_patterns)
-
-    consideration_patterns = [
-        r"\b(consideration|in\s+exchange\s+for|payment|compensation|fee|salary|remuneration)\b",
-        r"\b(valuable\s+consideration|good\s+and\s+valuable\s+consideration)\b",
-        r"\b(mutual\s+covenants|mutual\s+agreements|reciprocal\s+obligations)\b",
-        r"\b(\$|dollar|payment|price|cost|fee).*\b(amount|sum|total)\b",
-        r"\b(services|work|deliverable|performance).*\b(exchange|return|compensation)\b",
-        r"\b(monthly|annual|hourly).*\b(rate|salary|fee|payment)\b"
-    ]
-    has_consideration = any(re.search(p, normalized, re.I) for p in consideration_patterns)
-
-    legal_intent_patterns = [
-        r"\b(legally\s+binding|binding\s+agreement|enforceable)\b",
-        r"\b(subject\s+to\s+law|governed\s+by\s+law|legal\s+effect)\b",
-        r"\b(breach|violation|default).*\b(remedy|damages|penalty)\b",
-        r"\b(court|jurisdiction|dispute\s+resolution|arbitration)\b",
-        r"\b(whereas|witnesseth|now\s+therefore)\b",
-        r"\b(agreement|contract|terms).*\b(binding|enforceable|legal)\b",
-        r"\b(liability|indemnif|damages|remedy)\b"
-    ]
-    has_legal_intent = any(re.search(p, normalized, re.I) for p in legal_intent_patterns)
-
-    capacity_patterns = [
-        r"\b(party|parties|between.*\sand)\b",
-        r"\b(company|corporation|llc|inc|ltd|individual|person)\b",
-        r"\b(contractor|client|vendor|supplier|employer|employee)\b",
-        r"\b(authorized|duly\s+authorized|legal\s+capacity)\b"
-    ]
-    has_capacity = any(re.search(p, normalized, re.I) for p in capacity_patterns)
-
-    essential_elements = [has_offer_acceptance, has_consideration, has_legal_intent, has_capacity]
-    essential_count = sum(1 for x in essential_elements if x)
-
-    # -------- Structural gate --------
-    has_parties = bool(re.search(r"\b(the\s+parties|party\s+a|party\s+b|client|contractor|company|vendor)\b", normalized))
-    has_structure = bool(re.search(r"\b(whereas|witnesseth|now\s+therefore|in\s+consideration)\b", normalized))
-    sections = len(re.findall(r"\b(section|clause|article|paragraph)\s+\d+\b", normalized))
-    structural_ok = has_parties and (has_structure or sections >= 2) and has_execution
-
-    # -------- Clause-family gate: must hit at least 2 of 6 core families --------
-    families = {
-        "liability": r"\blimit(ation)?\s+of\s+liability\b|\bliability\s+cap\b",
-        "indemnity": r"\bindemnif(y|ication)\b|\bhold\s+harmless\b",
-        "governing_law": r"\b(governing\s+law|venue|jurisdiction)\b",
-        "termination": r"\b(termination|renewal|expiration|cancellation)\b",
-        "confidentiality": r"\b(confidential(ity)?|non[- ]?disclosure)\b",
-        "payment": r"\b(payment|compensation|fees?|invoice)\b",
+    # --- Contract element gates (Offer/Acceptance, Consideration, Legal Intent, Capacity) ---
+    gates = {
+        "offer_acceptance": [
+            r"\b(hereby\s+agree|agree\s+to|acceptance\s+of|offer\s+is\s+accepted)\b",
+            r"\b(the\s+parties\s+agree|this\s+agreement)\b",
+        ],
+        "consideration": [
+            r"\b(consideration|in\s+exchange\s+for|compensation|fee|salary|remuneration|payment)\b",
+            r"\b(mutual\s+covenants|reciprocal\s+obligations)\b",
+        ],
+        "legal_intent": [
+            r"\b(legally\s+binding|binding\s+agreement|enforceable)\b",
+            r"\b(governed\s+by\s+law|breach.*(remedy|damages)|dispute\s+resolution|arbitration|jurisdiction)\b",
+            r"\b(whereas|witnesseth|now\s+therefore)\b",
+        ],
+        "capacity": [
+            r"\b(party|parties|between\s+.*\s+and)\b",
+            r"\b(company|corporation|llc|inc\.?|ltd\.?|contractor|client|employer|employee|vendor|supplier)\b",
+            r"\b(authorized|duly\s+authorized|legal\s+capacity)\b",
+        ],
     }
-    core_hits = sum(1 for pat in families.values() if re.search(pat, normalized, re.I))
-    clause_ok = core_hits >= 2
 
-    # -------- Scoring (kept for diagnostics) --------
-    structure_score = 0
-    for p in [r"\b(agreement|contract)\b.*\b(entered\s+into|made\s+and\s+entered)\b",
-              r"\b(effective\s+date|commencement\s+date|term\s+of\s+agreement)\b",
-              r"\b(signature|executed|signed|witness\s+whereof)\b",
-              r"\b(section|clause|article|paragraph)\s+\d+",
-              r"\b(definitions?|means|shall\s+mean)\b"]:
-        if re.search(p, normalized, re.I): structure_score += 10
+    def _has_any(patterns: List[str]) -> bool:
+        return any(re.search(p, normalized, re.I) for p in patterns)
 
-    substantive_score = 0
-    for p in [r"\b(shall|will|must|required\s+to|obligated\s+to)\b",
-              r"\b(rights|obligations|duties|responsibilities)\b",
-              r"\b(performance|delivery|completion|fulfillment)\b",
-              r"\b(termination|expiration|renewal|cancellation)\b",
-              r"\b(liability|damages|indemnif|warranty|representation)\b"]:
-        substantive_score += min(len(re.findall(p, normalized, re.I)), 5)
+    elements = {
+        "offer_acceptance": _has_any(gates["offer_acceptance"]),
+        "consideration": _has_any(gates["consideration"]),
+        "legal_intent": _has_any(gates["legal_intent"]),
+        "capacity": _has_any(gates["capacity"]),
+    }
+    essential_count = sum(1 for v in elements.values() if v)
 
+    # --- Formal structure & substantive terms (supportive signals) ---
+    formal_structure = any(re.search(p, normalized, re.I) for p in [
+        r"\b(effective\s+date|commencement\s+date|term\s+of\s+agreement)\b",
+        r"\b(section|clause|article|paragraph)\s+\d+\b",
+        r"\b(signature|executed|in\s+witness\s+whereof)\b",
+        r"\b(definitions?|shall\s+mean)\b",
+    ])
+    substantive_terms = any(re.search(p, normalized, re.I) for p in [
+        r"\b(shall|will|must|required\s+to|obligated\s+to)\b",
+        r"\b(rights|obligations|duties|responsibilities)\b",
+        r"\b(termination|expiration|renewal|cancellation)\b",
+        r"\b(liability|damages|indemnif|warranty|representation)\b",
+    ])
+
+    # --- Compute a robust score (not the gate) ---
     score = 0
-    score += 25 if has_offer_acceptance else 0
-    score += 25 if has_consideration else 0
-    score += 30 if has_legal_intent else 0
-    score += 20 if has_capacity else 0
-    score += min(structure_score, 30)
-    score += min(substantive_score, 25)
+    score += essential_count * 25
+    if formal_structure:   score += 20
+    if substantive_terms:  score += 15
+    if words > 800:        score += 5
+    if words > 1600:       score += 5
 
-    # Length bonus (correct order)
-    if words > 2000: score += 10
-    elif words > 1000: score += 7
-    elif words > 500: score += 4
+    # Penalty if lots of generic web/article signals present
+    negative_hits = sum(1 for p in [
+        r"\b(blog|article|press\s+release|announcement|newsletter)\b",
+        r"\b(user\s+manual|tutorial|how\s+to)\b",
+        r"\b(recipe|syllabus|course|curriculum)\b",
+    ] if re.search(p, normalized, re.I))
+    score -= negative_hits * 10
+    if words < 120:
+        score -= 10
 
-    # -------- Final decision with "legal-but-not-contract" handling --------
-    essentials_ok = essential_count >= 3
-    is_contract = bool(structural_ok and clause_ok and essentials_ok)
+    # --- Decision logic (strict) ---
+    # CONTRACT = >= 3 essentials AND some structure
+    is_contract = (essential_count >= 3) and (formal_structure or substantive_terms)
 
-    if not is_contract:
-        # If it looks like a legal document (markers present or legal intent), analyze but mark non-contract
-        if legal_markers > 0 or has_legal_intent or has_governing_law:
-            details = {
-                "score": score,
-                "confidence": "none",
-                "essential_elements": essential_count,
-                "offer_acceptance": has_offer_acceptance,
-                "consideration": has_consideration,
-                "legal_intent": has_legal_intent,
-                "capacity": has_capacity,
-                "formal_structure": structural_ok,
-                "substantive_terms": clause_ok,
-                "word_count": words,
-                "detected_type": "legal_document",
-                "analysis_recommendation": "analyze_non_contract",
-                "contract_strength": "none",
-                "anchors": {"governing_law": has_governing_law, "execution": has_execution},
-                "core_clause_hits": core_hits,
-                "legal_markers": legal_markers,
-                "reason": "legal document detected but failed contract gates"
-            }
-            return False, details
+    # If clearly legal-ish but not a contract, surface a helpful path
+    legal_indicators = []
+    for k in ["legal_intent", "capacity"]:
+        if elements[k]:
+            legal_indicators.append(k)
+    if ("governing law" in normalized) or ("jurisdiction" in normalized):
+        legal_indicators.append("legal_structure")
+    if "witnesseth" in normalized or "whereas" in normalized:
+        legal_indicators.append("recitals")
 
-    details = {
-        "score": score,
-        "confidence": ("high" if essential_count == 4 else "medium") if is_contract else "none",
+    if is_contract:
+        confidence = "high" if essential_count == 4 else "medium"
+        return True, {
+            "score": score,
+            "confidence": confidence,
+            "essential_elements": essential_count,
+            "offer_acceptance": elements["offer_acceptance"],
+            "consideration": elements["consideration"],
+            "legal_intent": elements["legal_intent"],
+            "capacity": elements["capacity"],
+            "formal_structure": formal_structure,
+            "substantive_terms": substantive_terms,
+            "word_count": words,
+            "detected_type": "contract",
+            "analysis_recommendation": "analyze",
+            "legal_indicators": legal_indicators[:6],
+        }
+
+    # Not a contract. If there are legal indicators, mark it as legal document.
+    if legal_indicators or substantive_terms:
+        return False, {
+            "score": max(-10, score - 20),
+            "confidence": "low",
+            "reason": "Legal document detected but failed contract elements/structure",
+            "essential_elements": essential_count,
+            "offer_acceptance": elements["offer_acceptance"],
+            "consideration": elements["consideration"],
+            "legal_intent": elements["legal_intent"],
+            "capacity": elements["capacity"],
+            "formal_structure": formal_structure,
+            "substantive_terms": substantive_terms,
+            "word_count": words,
+            "detected_type": "legal_document",
+            "analysis_recommendation": "analyze_non_contract",
+            "legal_indicators": legal_indicators[:6],
+        }
+
+    # Otherwise, treat as non-legal
+    return False, {
+        "score": -40,
+        "confidence": "none",
+        "reason": "No legal/contract signals found",
         "essential_elements": essential_count,
-        "offer_acceptance": has_offer_acceptance,
-        "consideration": has_consideration,
-        "legal_intent": has_legal_intent,
-        "capacity": has_capacity,
-        "formal_structure": structural_ok,
-        "substantive_terms": clause_ok,
+        "formal_structure": formal_structure,
+        "substantive_terms": substantive_terms,
         "word_count": words,
-        "detected_type": "contract" if is_contract else "unknown",
-        "analysis_recommendation": "analyze" if is_contract else "reject",
-        "contract_strength": ("high" if essential_count == 4 else "medium") if is_contract else "none",
-        "anchors": {"governing_law": has_governing_law, "execution": has_execution},
-        "core_clause_hits": core_hits,
-        "legal_markers": legal_markers,
-        "reason": "passed all gates" if is_contract else "failed gates"
+        "detected_type": "non_legal"
     }
-    return is_contract, details
-
+    
 # ---------- COMPREHENSIVE RED FLAGS ----------
 RED_FLAGS: List[Dict[str, Any]] = [
     # HIGH RISK - Deal breakers
