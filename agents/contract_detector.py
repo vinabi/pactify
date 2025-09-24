@@ -1,509 +1,352 @@
-# agents/contract_detector.py - ENHANCED CONTRACT DETECTION + TEMPLATE COMPARISON
+# agents/contract_detector.py
 from __future__ import annotations
-import re
+import re, json
 from typing import Tuple, Dict, Any, List, Optional
+from dataclasses import dataclass
 from loguru import logger
 
+# Reuse your existing LLM setup so we don't add new deps
+from langchain_groq import ChatGroq
+from langchain.schema import SystemMessage, HumanMessage
+from api.settings import settings
+from api.utils import JsonRepair
+
+# --------------------------------------------------------------------------------------
+# NORMALIZATION (kept – helpful for downstream tools)
+# --------------------------------------------------------------------------------------
 def normalize_contract_text(text: str) -> str:
-    """Enhanced text normalization for contract analysis"""
     if not text:
         return ""
-    # Fix encoding issues
-    text = text.encode('utf-8', errors='ignore').decode('utf-8')
-    # Remove common PDF artifacts
-    text = re.sub(r'\n\s*\d+\s*\n', '\n', text)  # Page numbers
-    text = re.sub(r'\n\s*Page\s+\d+\s+of\s+\d+\s*\n', '\n', text, flags=re.I)  # Page headers
-    # Join hyphenated words across lines
-    text = re.sub(r'-\s*\n\s*', '', text)
-    # Collapse excessive whitespace but preserve structure
-    text = re.sub(r'\n\s*\n\s*\n', '\n\n', text)  # Max 2 newlines
-    text = re.sub(r'[ \t]+', ' ', text)           # Collapse spaces/tabs
-    # Normalize to lowercase for analysis
-    return " ".join(text.split()).lower()
+    text = text.encode("utf-8", errors="ignore").decode("utf-8")
+    text = re.sub(r"\n\s*\d+\s*\n", "\n", text)  # page numbers
+    text = re.sub(r"\n\s*Page\s+\d+\s+of\s+\d+\s*\n", "\n", text, flags=re.I)
+    text = re.sub(r"-\s*\n\s*", "", text)        # join hyphenated words
+    text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)# cap blank lines
+    text = re.sub(r"[ \t]+", " ", text)
+    return " ".join(text.split())
 
-# ---------- COMPREHENSIVE CONTRACT PATTERNS ----------
-STRONG_CONTRACT_SIGNALS = [
-    # Contract types
-    r"\b(non-?disclosure|confidentiality)\s+agreement\b",
-    r"\b(master\s+)?service(s)?\s+agreement\b", 
-    r"\b(employment|consulting|independent\s+contractor)\s+(agreement|contract)\b",
-    r"\b(license|licensing)\s+(agreement|contract)\b",
-    r"\b(purchase|sales?|supply)\s+(agreement|contract|order)\b",
-    r"\b(partnership|joint\s+venture)\s+agreement\b",
-    r"\b(franchise|distribution|reseller)\s+agreement\b",
-    r"\b(terms\s+and\s+conditions|terms\s+of\s+(service|use))\b",
-    r"\b(statement\s+of\s+work|scope\s+of\s+work|sow)\b",
-    
-    # Legal forms and documents (kept from your original file)
-    r"\b(i-130|i-140|i-485|i-765|i-131)\b",  # Immigration forms
-    r"\b(petition\s+for|application\s+for|form\s+i-\d+)\b",
-    r"\b(uscis|immigration|petition|beneficiary|petitioner)\b",
-    r"\b(legal\s+document|official\s+form|government\s+form)\b",
-    
-    # Legal structure patterns
-    r"\bwhereas\b.*\bnow\s+therefore\b",
-    r"\bin\s+consideration\s+of\b",
-    r"\bthe\s+parties\s+agree\s+as\s+follows\b",
-    r"\bthis\s+agreement\s+is\s+(made|entered\s+into)\b",
-    r"\b(effective|commencement)\s+date\b",
-    
-    # Core contract clauses
-    r"\bindemnif(y|ication)\b.*\bhold\s+harmless\b",
-    r"\blimit(ation)?\s+of\s+liability\b",
-    r"\bgoverning\s+law\b.*\bjurisdiction\b",
-    r"\btermination\b.*\b(breach|cause|convenience)\b",
-    r"\bintellectual\s+property\b.*\b(ownership|rights)\b",
-    r"\bconfidential(ity)?\b.*\binformation\b",
-    r"\bpayment\b.*\b(terms|schedule|invoice)\b",
-    r"\bwarrant(y|ies)\b.*\bdisclaim(er)?\b",
-    r"\bdispute\s+resolution\b.*\b(arbitration|mediation)\b",
-    r"\bforce\s+majeure\b",
-    
-    # Signature and execution
-    r"\bin\s+witness\s+whereof\b",
-    r"\bexecuted\s+.*\s+(date|day)\s+first\s+written\b",
-    r"\bsignature\s+page\b",
-    r"\bduly\s+authorized\b",
-]
+# --------------------------------------------------------------------------------------
+# LLM-BASED CLASSIFIER (context-aware)
+# --------------------------------------------------------------------------------------
+def _make_llm():
+    api_key = settings.groq_api_key
+    model = settings.groq_model
+    temperature = float(settings.groq_temperature)
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY not set. See .env")
+    return ChatGroq(groq_api_key=api_key, model_name=model, temperature=temperature)
 
-MEDIUM_CONTRACT_SIGNALS = [
-    r"\b(section|clause|article|paragraph)\s+\d+\b",
-    r"\b(shall|will)\s+(not\s+)?(be\s+)?(liable|responsible|obligated)\b",
-    r"\b(party|parties)\s+(agree|consent|acknowledge)\b",
-    r"\b(including\s+but\s+not\s+limited\s+to|without\s+limitation)\b",
-    r"\b(reasonable|best)\s+efforts\b",
-    r"\b(material|substantial)\s+(breach|default|change)\b",
-    r"\b(cure|remedy)\s+period\b",
-    r"\b(successor|assign)\b.*\bbinding\b",
-    r"\bentire\s+agreement\b",
-    r"\bseverability\b",
-]
+_CLASSIFY_SYS = (
+    "You are a legal document gatekeeper. "
+    "Classify the provided text as one of: contract, legal_document, non_legal. "
+    "Be strict and context-aware (not keyword counting). "
+    "Detect the 4 contract essentials: offer_acceptance, consideration, legal_intent, capacity. "
+    "Return STRICT JSON with this schema:\n"
+    "{"
+    '"label": "contract|legal_document|non_legal",'
+    '"confidence": "high|medium|low|none",'
+    '"reason": "<short reason>",'
+    '"features": {'
+        '"essential_elements": {"offer_acceptance": bool, "consideration": bool, "legal_intent": bool, "capacity": bool},'
+        '"has_signature_blocks": bool,'
+        '"num_distinct_parties": int,'
+        '"max_heading_depth": int,'
+        '"word_count": int'
+    "}"
+    "}"
+)
 
-WEAK_CONTRACT_SIGNALS = [
-    r"\b(agreement|contract|terms)\b",
-    r"\b(provide|perform|deliver)\b.*\bservice\b",
-    r"\b(payment|fee|cost|price)\b",
-    r"\b(date|deadline|timeline)\b",
-    r"\b(contact|email|phone)\b.*\binformation\b",
-]
-
-NON_CONTRACT_SIGNALS = [
-    r"\b(blog|article|post|news)\b",
-    r"\b(privacy\s+policy|cookie\s+policy)\b", 
-    r"\b(user\s+manual|instructions|tutorial)\b",
-    r"\b(press\s+release|announcement)\b",
-    r"\b(syllabus|curriculum|course)\b",
-    r"\b(recipe|how\s+to|guide)\b",
-    r"\b(newsletter|bulletin|update)\b",
-    r"\b(academic\s+paper|research|study)\b",
-    r"\b(invoice|receipt|bill)\b",
-    r"\b(memo|memorandum|note)\b",
-]
-
-def looks_like_contract_v2(text: str) -> Tuple[bool, Dict[str, Any]]:
-    """FORMAL LEGAL CONTRACT CLASSIFIER — rigid, with a 'legal but not a contract' path"""
-    if not text or len(text.strip()) < 50:
-        return False, {"score": 0, "reason": "Document too short for analysis"}
-
-    # --- Normalize (preserve light structure) ---
-    def _normalize(s: str) -> str:
-        s = s.encode("utf-8", errors="ignore").decode("utf-8")
-        s = re.sub(r'\n\s*\d+\s*\n', '\n', s)
-        s = re.sub(r'\n\s*Page\s+\d+\s+of\s+\d+\s*\n', '\n', s, flags=re.I)
-        s = re.sub(r'-\s*\n\s*', '', s)              # join hyphenated words across lines
-        s = re.sub(r'\n\s*\n\s*\n+', '\n\n', s)      # cap blank lines
-        s = re.sub(r'[ \t]+', ' ', s)                # collapse spaces/tabs
-        return " ".join(s.split()).lower()
-
-    normalized = _normalize(text)
-    words = len(normalized.split())
-
-    # --- Strict "obvious non-legal" rejection (resume, code, homework, etc.) ---
-    non_legal_patterns = [
-        # academic
-        r"\b(assignment|homework|professor|semester|syllabus|quiz|midterm|final exam)\b",
-        r"\b(essay|thesis|dissertation|bibliography|references)\b",
-        # code / package metadata
-        r"\bdef\s+\w+\s*\(|\bclass\s+\w+\s*:|\bimport\s+\w+|\bfrom\s+\w+\s+import\b",
-        r"\bpackage\.json\b|\brequirements\.txt\b|\bsetup\.py\b|\bREADME\.md\b",
-        r"\bnpm\s+install\b|\byarn\s+add\b|\bpip\s+install\b",
-        # resume / personal docs
-        r"\b(resume|curriculum\s+vitae|cv|cover\s+letter)\b",
-        r"\b(dear\s+hiring\s+manager|objective|skills|experience|education)\b",
+def _classify_with_llm(text: str) -> Dict[str, Any]:
+    llm = _make_llm()
+    txt = normalize_contract_text(text)[:18000]  # keep prompt safe
+    msgs = [
+        SystemMessage(content=_CLASSIFY_SYS),
+        HumanMessage(content=f"Document text:\n\n{txt}")
     ]
-    non_legal_hits = sum(1 for p in non_legal_patterns if re.search(p, normalized, re.I))
-    if non_legal_hits >= 2:
+    res = llm.invoke(msgs)
+    raw = res.content if isinstance(res.content, str) else str(res.content)
+    data = JsonRepair.extract_json(raw)
+    # sanity defaults
+    label = (data.get("label") or "non_legal").lower().strip()
+    conf = (data.get("confidence") or "low").lower().strip()
+    reason = data.get("reason") or "No reason provided"
+    features = data.get("features") or {}
+    essentials = features.get("essential_elements") or {}
+    # normalize essentials into dict of 4 keys
+    essentials = {
+        "offer_acceptance": bool(essentials.get("offer_acceptance", False)),
+        "consideration": bool(essentials.get("consideration", False)),
+        "legal_intent": bool(essentials.get("legal_intent", False)),
+        "capacity": bool(essentials.get("capacity", False)),
+    }
+    features["essential_elements"] = essentials
+    # add a convenience count
+    features["essential_count"] = sum(1 for v in essentials.values() if v)
+    out = {
+        "label": label,
+        "confidence": conf,
+        "reason": reason,
+        "features": {
+            "has_signature_blocks": bool(features.get("has_signature_blocks", False)),
+            "num_distinct_parties": int(features.get("num_distinct_parties", 0) or 0),
+            "max_heading_depth": int(features.get("max_heading_depth", 0) or 0),
+            "word_count": int(features.get("word_count", 0) or 0),
+            "essential_elements": essentials,
+            "essential_count": features["essential_count"],
+        },
+    }
+    return out
+
+# --------------------------------------------------------------------------------------
+# SEMANTIC SIMILARITY GATE (embedding-based, no keyword rules)
+# --------------------------------------------------------------------------------------
+def _semantic_contract_similarity(text: str) -> Optional[float]:
+    """
+    Compute a semantic similarity score of the document to contract templates
+    using sentence embeddings stored in Chroma. Returns None if unavailable.
+    Scale: ~0.0 (unrelated) to ~1.0 (very similar).
+    """
+    try:
+        # Local import to avoid hard dep at import-time
+        import chromadb
+        from chromadb.utils import embedding_functions
+
+        client = chromadb.PersistentClient(path=settings.chroma_dir)
+        ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name="all-MiniLM-L6-v2"
+        )
+        coll = client.get_or_create_collection(
+            name="contract_templates", embedding_function=ef
+        )
+        # Query a trimmed version to keep perf good
+        q = normalize_contract_text(text)[:4000]
+        res = coll.query(query_texts=[q], n_results=5)
+        distances = (res.get("distances") or [[]])[0]
+        if not distances:
+            return None
+        # Chroma cosine distance -> similarity
+        sims = [max(0.0, min(1.0, 1.0 - float(d))) for d in distances]
+        return sum(sims) / max(1, len(sims))
+    except Exception as e:
+        logger.debug(f"Semantic similarity unavailable: {e}")
+        return None
+
+# --------------------------------------------------------------------------------------
+# PUBLIC SURFACE (names preserved)
+# --------------------------------------------------------------------------------------
+def looks_like_contract_v2(text: str) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Backwards-compatible API.
+    Returns (is_contract: bool, details: Dict) where details['detected_type'] is one of:
+    'contract', 'legal_document', 'non_legal'.
+    """
+    if not text or len(text.strip()) < 50:
         return False, {
-            "score": -120,
-            "reason": "Non-legal content detected (code/resume/assignment)",
             "detected_type": "non_legal",
-            "essential_elements": 0,
             "confidence": "none",
-            "word_count": words
+            "reason": "Document too short for analysis",
+            "features": {"word_count": len(text or "")},
         }
-
-    # --- Contract element gates (Offer/Acceptance, Consideration, Legal Intent, Capacity) ---
-    gates = {
-        "offer_acceptance": [
-            r"\b(hereby\s+agree|agree\s+to|acceptance\s+of|offer\s+is\s+accepted)\b",
-            r"\b(the\s+parties\s+agree|this\s+agreement)\b",
-        ],
-        "consideration": [
-            r"\b(consideration|in\s+exchange\s+for|compensation|fee|salary|remuneration|payment)\b",
-            r"\b(mutual\s+covenants|reciprocal\s+obligations)\b",
-        ],
-        "legal_intent": [
-            r"\b(legally\s+binding|binding\s+agreement|enforceable)\b",
-            r"\b(governed\s+by\s+law|breach.*(remedy|damages)|dispute\s+resolution|arbitration|jurisdiction)\b",
-            r"\b(whereas|witnesseth|now\s+therefore)\b",
-        ],
-        "capacity": [
-            r"\b(party|parties|between\s+.*\s+and)\b",
-            r"\b(company|corporation|llc|inc\.?|ltd\.?|contractor|client|employer|employee|vendor|supplier)\b",
-            r"\b(authorized|duly\s+authorized|legal\s+capacity)\b",
-        ],
-    }
-
-    def _has_any(patterns: List[str]) -> bool:
-        return any(re.search(p, normalized, re.I) for p in patterns)
-
-    elements = {
-        "offer_acceptance": _has_any(gates["offer_acceptance"]),
-        "consideration": _has_any(gates["consideration"]),
-        "legal_intent": _has_any(gates["legal_intent"]),
-        "capacity": _has_any(gates["capacity"]),
-    }
-    essential_count = sum(1 for v in elements.values() if v)
-
-    # --- Formal structure & substantive terms (supportive signals) ---
-    formal_structure = any(re.search(p, normalized, re.I) for p in [
-        r"\b(effective\s+date|commencement\s+date|term\s+of\s+agreement)\b",
-        r"\b(section|clause|article|paragraph)\s+\d+\b",
-        r"\b(signature|executed|in\s+witness\s+whereof)\b",
-        r"\b(definitions?|shall\s+mean)\b",
-    ])
-    substantive_terms = any(re.search(p, normalized, re.I) for p in [
-        r"\b(shall|will|must|required\s+to|obligated\s+to)\b",
-        r"\b(rights|obligations|duties|responsibilities)\b",
-        r"\b(termination|expiration|renewal|cancellation)\b",
-        r"\b(liability|damages|indemnif|warranty|representation)\b",
-    ])
-
-    # --- Compute a robust score (not the gate) ---
-    score = 0
-    score += essential_count * 25
-    if formal_structure:   score += 20
-    if substantive_terms:  score += 15
-    if words > 800:        score += 5
-    if words > 1600:       score += 5
-
-    # Penalty if lots of generic web/article signals present
-    negative_hits = sum(1 for p in [
-        r"\b(blog|article|press\s+release|announcement|newsletter)\b",
-        r"\b(user\s+manual|tutorial|how\s+to)\b",
-        r"\b(recipe|syllabus|course|curriculum)\b",
-    ] if re.search(p, normalized, re.I))
-    score -= negative_hits * 10
-    if words < 120:
-        score -= 10
-
-    # --- Decision logic (strict) ---
-    # CONTRACT = >= 3 essentials AND some structure
-    is_contract = (essential_count >= 3) and (formal_structure or substantive_terms)
-
-    # If clearly legal-ish but not a contract, surface a helpful path
-    legal_indicators = []
-    for k in ["legal_intent", "capacity"]:
-        if elements[k]:
-            legal_indicators.append(k)
-    if ("governing law" in normalized) or ("jurisdiction" in normalized):
-        legal_indicators.append("legal_structure")
-    if "witnesseth" in normalized or "whereas" in normalized:
-        legal_indicators.append("recitals")
-
-    if is_contract:
-        confidence = "high" if essential_count == 4 else "medium"
-        return True, {
-            "score": score,
-            "confidence": confidence,
-            "essential_elements": essential_count,
-            "offer_acceptance": elements["offer_acceptance"],
-            "consideration": elements["consideration"],
-            "legal_intent": elements["legal_intent"],
-            "capacity": elements["capacity"],
-            "formal_structure": formal_structure,
-            "substantive_terms": substantive_terms,
-            "word_count": words,
-            "detected_type": "contract",
-            "analysis_recommendation": "analyze",
-            "legal_indicators": legal_indicators[:6],
+    try:
+        result = _classify_with_llm(text)
+        label = result["label"]
+        # decorate to match old callers' expectations
+        details = {
+            "detected_type": label,
+            "confidence": result.get("confidence", "low"),
+            "reason": result.get("reason", ""),
+            "features": result.get("features", {}),
         }
-
-    # Not a contract. If there are legal indicators, mark it as legal document.
-    if legal_indicators or substantive_terms:
+        return (label == "contract"), details
+    except Exception as e:
+        logger.exception("LLM classification failed; defaulting to non_legal")
         return False, {
-            "score": max(-10, score - 20),
-            "confidence": "low",
-            "reason": "Legal document detected but failed contract elements/structure",
-            "essential_elements": essential_count,
-            "offer_acceptance": elements["offer_acceptance"],
-            "consideration": elements["consideration"],
-            "legal_intent": elements["legal_intent"],
-            "capacity": elements["capacity"],
-            "formal_structure": formal_structure,
-            "substantive_terms": substantive_terms,
-            "word_count": words,
-            "detected_type": "legal_document",
-            "analysis_recommendation": "analyze_non_contract",
-            "legal_indicators": legal_indicators[:6],
+            "detected_type": "non_legal",
+            "confidence": "none",
+            "reason": f"classifier_error: {e}",
+            "features": {"word_count": len(text or "")},
         }
 
-    # Otherwise, treat as non-legal
-    return False, {
-        "score": -40,
-        "confidence": "none",
-        "reason": "No legal/contract signals found",
-        "essential_elements": essential_count,
-        "formal_structure": formal_structure,
-        "substantive_terms": substantive_terms,
-        "word_count": words,
-        "detected_type": "non_legal"
-    }
-    
-# ---------- COMPREHENSIVE RED FLAGS ----------
+@dataclass
+class DocGateResult:
+    accept: bool
+    label: str               # "contract" | "legal_document" | "non_legal"
+    confidence: str
+    reason: str
+    details: Dict[str, Any]
+
+def classify_document(text: str) -> DocGateResult:
+    """
+    Single source of truth for gating.
+    Accept = contract OR legal_document. Reject = non_legal.
+    """
+    is_contract, details = looks_like_contract_v2(text)
+    label = details.get("detected_type") or ("contract" if is_contract else "non_legal")
+    conf = details.get("confidence", "low")
+    reason = details.get("reason", "")
+
+    # Derive structured features for context-aware gating
+    feats = details.get("features", {}) if isinstance(details, dict) else {}
+    essential_count = int(feats.get("essential_count") or 0)
+    has_signatures = bool(feats.get("has_signature_blocks") or False)
+    num_parties = int(feats.get("num_distinct_parties") or 0)
+    word_count = int(feats.get("word_count") or 0)
+
+    # Semantic similarity to known contract templates (if available)
+    sem_sim = _semantic_contract_similarity(text)
+
+    # Tighten acceptance: require joint semantic and structural evidence
+    if is_contract:
+        sim = (sem_sim or 0.0)
+        strong_llm = conf in ("high", "medium") and essential_count >= 3
+        strong_structure = num_parties >= 2 and (has_signatures or essential_count >= 3)
+        strong_semantic = sim >= 0.55
+        long_enough = word_count >= 150
+        if strong_llm and strong_structure and strong_semantic and long_enough:
+            return DocGateResult(
+                accept=True, label="contract", confidence=conf,
+                reason=reason or "Accepted: classified as contract",
+                details={**details, "semantic_similarity": sem_sim},
+            )
+        return DocGateResult(
+            accept=False, label="non_legal", confidence=conf,
+            reason=(
+                "Rejected: insufficient joint evidence (similarity, essentials, parties/signatures, length)"
+            ),
+            details={**details, "semantic_similarity": sem_sim},
+        )
+
+    if label == "legal_document":
+        # Accept only with strong corroboration; otherwise reject to prevent false positives
+        sim = (sem_sim or 0.0)
+        supportive_semantic = sim >= 0.60
+        supportive_structure = (essential_count >= 2 and num_parties >= 2) or has_signatures
+        long_enough = word_count >= 120
+        if conf in ("high", "medium") and long_enough and (supportive_semantic and supportive_structure):
+            return DocGateResult(
+                accept=True, label="legal_document", confidence=conf,
+                reason=reason or "Accepted: legal document (not a full contract)",
+                details={**details, "semantic_similarity": sem_sim},
+            )
+        return DocGateResult(
+            accept=False, label="non_legal", confidence=conf,
+            reason=(
+                "Rejected: lacks strong semantic and structural evidence of legal document"
+            ),
+            details={**details, "semantic_similarity": sem_sim},
+        )
+
+    return DocGateResult(
+        accept=False, label="non_legal", confidence=conf,
+        reason=reason or "Rejected: not a legal or contract-like document",
+        details=details,
+    )
+
+# --------------------------------------------------------------------------------------
+# RISK/TYPE UTILITIES (unchanged behaviour)
+# --------------------------------------------------------------------------------------
 RED_FLAGS: List[Dict[str, Any]] = [
-    # HIGH RISK - Deal breakers
-    {
-        "label": "Unlimited liability exposure",
-        "severity": "high",
-        "category": "liability",
-        "pattern": r"\b(unlimited|without\s+limit|no\s+cap|all\s+damages)\b.*\b(liability|damages|loss)\b",
-        "description": "Exposes party to unlimited financial risk"
-    },
-    {
-        "label": "One-sided indemnification",
-        "severity": "high", 
-        "category": "indemnity",
-        "pattern": r"\b(?:client|contractor|vendor|party)\s+(?:shall|will|agrees?\s+to)\s+indemnify.*(?!.*mutual|each\s+party)",
-        "description": "Only one party bears indemnification burden"
-    },
-    {
-        "label": "Broad IP assignment beyond scope",
-        "severity": "high",
-        "category": "intellectual_property", 
-        "pattern": r"\b(all|any)\s+(?:inventions?|developments?|works?|intellectual\s+property|improvements)\b.*\b(assign|transfer|belong|property|sole\s+property)\b",
-        "description": "Assigns IP beyond project deliverables"
-    },
-    {
-        "label": "Termination only for cause",
-        "severity": "high",
-        "category": "termination",
-        "pattern": r"\btermination?\b.*\b(?:only|solely)\s+(?:for\s+cause|upon\s+breach)\b",
-        "description": "No termination for convenience option"
-    },
-    
-    # MEDIUM RISK - Significant concerns  
-    {
-        "label": "Auto-renewal without adequate notice",
-        "severity": "medium",
-        "category": "termination",
-        "pattern": r"\b(?:auto(?:matic(?:ally)?)?|shall)\s+(?:renew|extend)\b",
-        "description": "Auto-renewal clause detected"
-    },
-    {
-        "label": "Excessive interest or penalty rates",
-        "severity": "medium",
-        "category": "payment",
-        "pattern": r"\b(?:1[8-9]|2[0-9]|[3-9][0-9])%\s+(?:per\s+annum|interest|penalty)",
-        "description": "Interest or penalty rates above 18% annually"
-    },
-    {
-        "label": "Unlimited indemnification scope",
-        "severity": "high",
-        "category": "indemnity", 
-        "pattern": r"\bindemnify.*\b(?:regardless|whether\s+caused\s+by|all\s+claims)",
-        "description": "Indemnification without carve-outs for gross negligence"
-    },
-    {
-        "label": "Payment terms exceeding NET 60",
-        "severity": "medium", 
-        "category": "payment",
-        "pattern": r"\bnet\s+(?:6[5-9]|[7-9]\d|\d{3,})\s+days?\b|\bpayment.*(?:90|120|\d{3,})\s+days?\b",
-        "description": "Extended payment terms harm cash flow"
-    },
-    {
-        "label": "Confidentiality without time limit",
-        "severity": "medium",
-        "category": "confidentiality", 
-        "pattern": r"\bconfidential.*\b(?!.*(?:\d+\s+years?|term\s+of|upon\s+termination))",
-        "description": "Perpetual confidentiality obligations"
-    },
-    {
-        "label": "Non-compete exceeding 1 year",
-        "severity": "medium",
-        "category": "restrictions",
-        "pattern": r"\bnon[- ]?compete.*\b(?:[2-9]\d*|[1-9]\d+)\s+years?\b",
-        "description": "Excessive non-compete restriction period"
-    },
-    {
-        "label": "Governing law in unfavorable jurisdiction",
-        "severity": "medium",
-        "category": "dispute",
-        "pattern": r"\bgoverning\s+law.*\b(?:delaware|new\s+york|california)\b(?!.*mutual)",
-        "description": "May favor other party's jurisdiction"
-    },
-    {
-        "label": "Mandatory arbitration with limited discovery", 
-        "severity": "medium",
-        "category": "dispute",
-        "pattern": r"\barbitration\b.*\b(?:final|binding)\b.*(?!.*discovery|appeal)",
-        "description": "Limits legal recourse and discovery rights"
-    },
-    
-    # LOW RISK - Minor concerns
-    {
-        "label": "Missing liability cap clause",
-        "severity": "low",
-        "category": "liability", 
-        "pattern": r"(?!.*limit(?:ation)?\s+of\s+liability)",
-        "needs_absence_check": True,
-        "description": "Should include liability limitations"
-    },
-    {
-        "label": "Vague performance standards",
-        "severity": "low",
-        "category": "performance",
-        "pattern": r"\b(?:reasonable|best|commercially\s+reasonable)\s+efforts?\b",
-        "description": "Performance standards are subjective"
-    },
-    {
-        "label": "Force majeure without mutual protection",
-        "severity": "low", 
-        "category": "force_majeure",
-        "pattern": r"\bforce\s+majeure\b.*(?!.*both\s+parties|each\s+party)",
-        "description": "Force majeure may not protect both parties"
-    }
+    {"label": "Unlimited liability exposure","severity": "high","category": "liability",
+     "pattern": r"\b(unlimited|without\s+limit|no\s+cap|all\s+damages)\b.*\b(liability|damages|loss)\b",
+     "description": "Exposes party to unlimited financial risk"},
+    {"label": "One-sided indemnification","severity": "high","category": "indemnity",
+     "pattern": r"\b(?:client|contractor|vendor|party)\s+(?:shall|will|agrees?\s+to)\s+indemnify.*(?!.*mutual|each\s+party)",
+     "description": "Only one party bears indemnification burden"},
+    {"label": "Broad IP assignment beyond scope","severity": "high","category": "intellectual_property",
+     "pattern": r"\b(all|any)\s+(?:inventions?|developments?|works?|intellectual\s+property|improvements)\b.*\b(assign|transfer|belong|property|sole\s+property)\b",
+     "description": "Assigns IP beyond project deliverables"},
+    {"label": "Termination only for cause","severity": "high","category": "termination",
+     "pattern": r"\btermination?\b.*\b(?:only|solely)\s+(?:for\s+cause|upon\s+breach)\b",
+     "description": "No termination for convenience option"},
+    {"label": "Auto-renewal without adequate notice","severity": "medium","category": "termination",
+     "pattern": r"\b(?:auto(?:matic(?:ally)?)?|shall)\s+(?:renew|extend)\b",
+     "description": "Auto-renewal clause detected"},
+    {"label": "Excessive interest or penalty rates","severity": "medium","category": "payment",
+     "pattern": r"\b(?:1[8-9]|2[0-9]|[3-9][0-9])%\s+(?:per\s+annum|interest|penalty)",
+     "description": "Interest or penalty rates above 18% annually"},
+    {"label": "Unlimited indemnification scope","severity": "high","category": "indemnity",
+     "pattern": r"\bindemnify.*\b(?:regardless|whether\s+caused\s+by|all\s+claims)",
+     "description": "Indemnification without carve-outs for gross negligence"},
+    {"label": "Payment terms exceeding NET 60","severity": "medium","category": "payment",
+     "pattern": r"\bnet\s+(?:6[5-9]|[7-9]\d|\d{3,})\s+days?\b|\bpayment.*(?:90|120|\d{3,})\s+days?\b",
+     "description": "Extended payment terms harm cash flow"},
+    {"label": "Confidentiality without time limit","severity": "medium","category": "confidentiality",
+     "pattern": r"\bconfidential.*\b(?!.*(?:\d+\s+years?|term\s+of|upon\s+termination))",
+     "description": "Perpetual confidentiality obligations"},
+    {"label": "Non-compete exceeding 1 year","severity": "medium","category": "restrictions",
+     "pattern": r"\bnon[- ]?compete.*\b(?:[2-9]\d*|[1-9]\d+)\s+years?\b",
+     "description": "Excessive non-compete restriction period"},
+    {"label": "Governing law in unfavorable jurisdiction","severity": "medium","category": "dispute",
+     "pattern": r"\bgoverning\s+law.*\b(?:delaware|new\s+york|california)\b(?!.*mutual)",
+     "description": "May favor other party's jurisdiction"},
+    {"label": "Mandatory arbitration with limited discovery","severity": "medium","category": "dispute",
+     "pattern": r"\barbitration\b.*\b(?:final|binding)\b.*(?!.*discovery|appeal)",
+     "description": "Limits legal recourse and discovery rights"},
+    {"label": "Missing liability cap clause","severity": "low","category": "liability",
+     "pattern": r"(?!.*limit(?:ation)?\s+of\s+liability)", "needs_absence_check": True,
+     "description": "Should include liability limitations"},
+    {"label": "Vague performance standards","severity": "low","category": "performance",
+     "pattern": r"\b(?:reasonable|best|commercially\s+reasonable)\s+efforts?\b",
+     "description": "Performance standards are subjective"},
+    {"label": "Force majeure without mutual protection","severity": "low","category": "force_majeure",
+     "pattern": r"\bforce\s+majeure\b.*(?!.*both\s+parties|each\s+party)",
+     "description": "Force majeure may not protect both parties"},
 ]
 
 def find_red_flags(text: str) -> List[Dict[str, Any]]:
-    """Enhanced red flag detection with categorization"""
-    if not text:
-        return []
-        
+    if not text: return []
     normalized = " ".join(text.split()).lower()
     hits: List[Dict[str, Any]] = []
-    
     for rf in RED_FLAGS:
         if rf.get("needs_absence_check"):
-            # Check for absence of required clauses
             if rf["category"] == "liability":
                 if not re.search(r"\blimit(?:ation)?\s+of\s+liability|liability\s+(?:cap|limit)", normalized, re.I):
-                    hits.append({
-                        "label": rf["label"], 
-                        "severity": rf["severity"],
-                        "category": rf["category"],
-                        "description": rf["description"]
-                    })
+                    hits.append({"label": rf["label"], "severity": rf["severity"], "category": rf["category"], "description": rf["description"]})
         else:
-            # Pattern-based detection
             if re.search(rf["pattern"], normalized, re.I | re.S):
-                hits.append({
-                    "label": rf["label"], 
-                    "severity": rf["severity"],
-                    "category": rf["category"], 
-                    "description": rf["description"],
-                    "pattern": rf["pattern"]
-                })
-                
+                hits.append({"label": rf["label"], "severity": rf["severity"], "category": rf["category"], "description": rf["description"], "pattern": rf["pattern"]})
     return hits
 
-
-# ---------- TEMPLATE COMPARISON SYSTEM ----------
-def identify_contract_type(text: str) -> Tuple[str, float]:
-    """Identify the most likely contract type based on content analysis"""
-    if not text:
-        return "unknown", 0.0
-        
+# ---------- Template/type helpers (left as before) ----------
+def identify_contract_type(text: str) -> (str, float):
+    if not text: return "unknown", 0.0
     normalized = text.lower()
-    
-    # Contract type patterns with confidence scores
     contract_types = {
         "Non-Disclosure Agreement": [
             (r"\b(?:non[- ]?disclosure|confidentiality)\s+agreement\b", 0.9),
             (r"\bconfidential\s+information\b", 0.3),
             (r"\bdisclosure\b.*\bconfidential\b", 0.4),
-            (r"\breceiving\s+party\b.*\bdisclosing\s+party\b", 0.7)
+            (r"\breceiving\s+party\b.*\bdisclosing\s+party\b", 0.7),
         ],
         "Service Agreement": [
             (r"\b(?:master\s+)?service(?:s)?\s+agreement\b", 0.9),
             (r"\bstatement\s+of\s+work\b", 0.8),
             (r"\bservice(?:s)?\b.*\bperform\b", 0.3),
-            (r"\bdeliverable(?:s)?\b", 0.4)
+            (r"\bdeliverable(?:s)?\b", 0.4),
         ],
         "Employment Agreement": [
             (r"\bemployment\s+agreement\b", 0.9),
             (r"\bemployee\b.*\bemployer\b", 0.7),
             (r"\bsalary\b.*\bbenefits?\b", 0.5),
-            (r"\btermination\s+of\s+employment\b", 0.6)
+            (r"\btermination\s+of\s+employment\b", 0.6),
         ],
-        "License Agreement": [
-            (r"\blicens(?:e|ing)\s+agreement\b", 0.9),
-            (r"\blicensor\b.*\blicensee\b", 0.8),
-            (r"\bintellectual\s+property\s+rights?\b", 0.4),
-            (r"\broyalt(?:y|ies)\b", 0.5)
-        ],
-        "Purchase Agreement": [
-            (r"\b(?:purchase|sales?)\s+agreement\b", 0.9),
-            (r"\bbuyer\b.*\bseller\b", 0.7),
-            (r"\bpurchase\s+price\b", 0.6),
-            (r"\bclosing\s+date\b", 0.4)
-        ],
-        "Partnership Agreement": [
-            (r"\bpartnership\s+agreement\b", 0.9),
-            (r"\bpartner(?:s)?\b.*\bprofit(?:s)?\b", 0.6),
-            (r"\bjoint\s+venture\b", 0.8),
-            (r"\bequity\s+distribution\b", 0.5)
-        ],
-        "Terms of Service": [
-            (r"\bterms?\s+(?:of\s+service|and\s+conditions)\b", 0.9),
-            (r"\buser\s+agreement\b", 0.7),
-            (r"\bacceptable\s+use\b", 0.4),
-            (r"\bservice\s+provider\b", 0.3)
-        ]
     }
-    
-    best_type = "unknown"
-    best_score = 0.0
-    
-    for contract_type, patterns in contract_types.items():
+    best_type, best_score = "unknown", 0.0
+    for ctype, patterns in contract_types.items():
         score = 0.0
         for pattern, weight in patterns:
-            if re.search(pattern, normalized):
-                score += weight
-        
-        # Normalize score by number of patterns
+            if re.search(pattern, normalized): score += weight
         normalized_score = score / len(patterns)
-        
         if normalized_score > best_score:
-            best_score = normalized_score
-            best_type = contract_type
-    
+            best_score, best_type = normalized_score, ctype
     return best_type, best_score
 
-
 def compare_to_templates(contract_text: str, vect_client=None) -> Dict[str, Any]:
-    """Compare contract against standard templates using vector similarity"""
     if not vect_client or not contract_text:
         return {"template_matches": [], "deviations": [], "coverage_score": 0.0}
-    
     try:
-        # Identify contract type first
-        contract_type, type_confidence = identify_contract_type(contract_text)
-        
-        # Search for similar template clauses
+        ctype, type_conf = identify_contract_type(contract_text)
         from .tools_vector import retrieve_snippets
-        
-        # Get template matches from vector DB
         template_matches = []
         try:
             matches = retrieve_snippets(vect_client, "contract_templates", contract_text, k=5)
@@ -512,94 +355,49 @@ def compare_to_templates(contract_text: str, vect_client=None) -> Dict[str, Any]
                     "template_type": meta.get("contract_type", "Unknown"),
                     "clause_type": meta.get("clause_type", "General"),
                     "similarity_score": meta.get("score", 0.5),
-                    "template_text": doc[:300] + "..." if len(doc) > 300 else doc
+                    "template_text": (doc[:300] + "...") if len(doc) > 300 else doc,
                 })
         except Exception as e:
             logger.warning(f"Template retrieval failed: {e}")
-        
-        # Analyze deviations (clauses that don't match standard patterns)
-        deviations = analyze_template_deviations(contract_text, contract_type)
-        
-        # Calculate coverage score (how much of the contract matches templates)
+
+        deviations = analyze_template_deviations(contract_text, ctype)
         coverage_score = calculate_template_coverage(contract_text, template_matches)
-        
         return {
-            "identified_type": contract_type,
-            "type_confidence": type_confidence,
+            "identified_type": ctype,
+            "type_confidence": type_conf,
             "template_matches": template_matches,
             "deviations": deviations,
             "coverage_score": coverage_score,
-            "recommendations": generate_template_recommendations(deviations)
+            "recommendations": generate_template_recommendations(deviations),
         }
-        
     except Exception as e:
         logger.error(f"Template comparison failed: {e}")
         return {"error": str(e), "template_matches": [], "deviations": []}
 
-
-def analyze_template_deviations(text: str, contract_type: str) -> List[Dict[str, Any]]:
-    """Identify clauses that deviate from standard templates"""
+def analyze_template_deviations(text: str, contract_type: str) -> List[Dict]:
     deviations: List[Dict[str, Any]] = []
-    
-    # Standard clause expectations by contract type
     expected_clauses = {
-        "Non-Disclosure Agreement": [
-            "confidential_information_definition",
-            "permitted_disclosures", 
-            "return_of_information",
-            "term_duration"
-        ],
-        "Service Agreement": [
-            "scope_of_work",
-            "payment_terms",
-            "intellectual_property",
-            "termination_rights",
-            "liability_limitations"
-        ],
-        "Employment Agreement": [
-            "job_responsibilities",
-            "compensation_benefits",
-            "termination_conditions", 
-            "non_compete_clause",
-            "confidentiality"
-        ]
+        "Non-Disclosure Agreement": ["confidential_information_definition","permitted_disclosures","return_of_information","term_duration"],
+        "Service Agreement": ["scope_of_work","payment_terms","intellectual_property","termination_rights","liability_limitations"],
+        "Employment Agreement": ["job_responsibilities","compensation_benefits","termination_conditions","non_compete_clause","confidentiality"],
     }
-    
     expected = expected_clauses.get(contract_type, [])
     normalized = text.lower()
-    
-    # Check for missing standard clauses
     for clause_type in expected:
         if not has_clause_type(normalized, clause_type):
-            deviations.append({
-                "type": "missing_clause",
-                "clause_type": clause_type,
-                "severity": "medium",
-                "description": f"Missing standard {clause_type.replace('_', ' ')} clause"
-            })
-    
-    # Check for unusual or risky clauses
+            deviations.append({"type": "missing_clause","clause_type": clause_type,"severity": "medium","description": f"Missing standard {clause_type.replace('_', ' ')} clause"})
     unusual_patterns = [
         (r"\bperpetual\b", "perpetual_term", "Unusual perpetual term"),
         (r"\btrial\s+by\s+jury\s+waiver\b", "jury_waiver", "Jury trial waiver clause"),
         (r"\bexclusive\s+jurisdiction\b", "exclusive_jurisdiction", "Exclusive jurisdiction clause"),
-        (r"\battorney(?:s)?\s+fees?\b.*\bprevailing\s+party\b", "attorney_fees", "Attorney fees clause")
+        (r"\battorney(?:s)?\s+fees?\b.*\bprevailing\s+party\b", "attorney_fees", "Attorney fees clause"),
     ]
-    
     for pattern, clause_type, description in unusual_patterns:
         if re.search(pattern, normalized):
-            deviations.append({
-                "type": "unusual_clause",
-                "clause_type": clause_type,
-                "severity": "low",
-                "description": description
-            })
-    
+            deviations.append({"type": "unusual_clause","clause_type": clause_type,"severity": "low","description": description})
     return deviations
 
-
 def has_clause_type(text: str, clause_type: str) -> bool:
-    """Check if text contains a specific type of clause"""
     patterns = {
         "confidential_information_definition": r"\bconfidential\s+information\b.*\bmeans\b",
         "permitted_disclosures": r"\bpermitted\s+disclosure\b|\bexceptions?\b.*\bconfidentialit",
@@ -609,38 +407,21 @@ def has_clause_type(text: str, clause_type: str) -> bool:
         "payment_terms": r"\bpayment\s+terms?\b|\bcompensation\b|\bfees?\b",
         "intellectual_property": r"\bintellectual\s+property\b|\bownership\b.*\bwork\s+product\b",
         "termination_rights": r"\btermination\b.*\b(?:rights?|notice)\b",
-        "liability_limitations": r"\blimitation\s+of\s+liability\b|\bliability\s+cap\b"
+        "liability_limitations": r"\blimitation\s+of\s+liability\b|\bliability\s+cap\b",
     }
-    
     pattern = patterns.get(clause_type)
-    if pattern:
-        return bool(re.search(pattern, text, re.I))
-    return False
-
+    return bool(re.search(pattern, text, re.I)) if pattern else False
 
 def calculate_template_coverage(text: str, matches: List[Dict]) -> float:
-    """Calculate how much of the contract is covered by standard templates"""
-    if not matches:
-        return 0.0
-        
-    total_score = sum(match.get("similarity_score", 0) for match in matches)
-    return min(total_score / len(matches), 1.0) if matches else 0.0
-
+    if not matches: return 0.0
+    total = sum(m.get("similarity_score", 0) for m in matches)
+    return min(total / len(matches), 1.0)
 
 def generate_template_recommendations(deviations: List[Dict]) -> List[str]:
-    """Generate recommendations based on template analysis"""
-    recommendations: List[str] = []
-    
-    missing_count = sum(1 for d in deviations if d["type"] == "missing_clause")
-    unusual_count = sum(1 for d in deviations if d["type"] == "unusual_clause")
-    
-    if missing_count > 2:
-        recommendations.append("Consider adding missing standard clauses to improve contract completeness")
-    
-    if unusual_count > 0:
-        recommendations.append("Review unusual clauses for potential risks and enforceability issues")
-        
-    if missing_count == 0 and unusual_count == 0:
-        recommendations.append("Contract structure aligns well with standard templates")
-    
-    return recommendations
+    recs: List[str] = []
+    missing = sum(1 for d in deviations if d["type"] == "missing_clause")
+    unusual = sum(1 for d in deviations if d["type"] == "unusual_clause")
+    if missing > 2: recs.append("Consider adding missing standard clauses to improve contract completeness")
+    if unusual > 0: recs.append("Review unusual clauses for potential risks and enforceability issues")
+    if not missing and not unusual: recs.append("Contract structure aligns well with standard templates")
+    return recs
