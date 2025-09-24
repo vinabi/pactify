@@ -26,7 +26,7 @@ import asyncio
 
 # Page configuration
 st.set_page_config(
-    page_title="Contract Analysis Dashboard",
+    page_title="Pactify",
     page_icon="⚖️",
     layout="wide",
     initial_sidebar_state="collapsed"
