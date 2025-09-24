@@ -1,24 +1,26 @@
 # app_ui/dashboard.py - EXACT REPLICA OF CONTRACT ANALYSIS DASHBOARD
 import streamlit as st
 import requests
+import re
 import time
 from typing import Dict, List, Any, Optional
 import json
 from pathlib import Path
+from loguru import logger
 import sys
 
 # Add project root for imports
 sys.path.append(str(Path(__file__).parent.parent))
 
-# API Configuration - Use HF Space as backend
+# API Configuration - Cloud-first: use HF Space backend
 HF_API_BASE = "https://vinabi-pactify.hf.space"
 LOCAL_API_BASE = "http://127.0.0.1:8080"
 
-# Try HF Space first, fallback to local
+# In cloud, always use HF Space backend
 API_BASE_URL = HF_API_BASE
 
 # API-FIRST APPROACH - Minimal local imports for cloud deployment
-LOCAL_PROCESSING_AVAILABLE = HF_API_BASE  # Force API-only mode for cloud
+LOCAL_PROCESSING_AVAILABLE = False  # Force API-only mode for cloud
 
 import asyncio
 
@@ -676,19 +678,29 @@ def process_contract_via_api(uploaded_file, user_email: str):
                 f"{API_BASE_URL}/review_pipeline",
                 files=files,
                 params=params,
-                timeout=30
+                timeout=120
             )
             
             if response.status_code == 200:
                 api_result = response.json()
+            elif response.status_code == 422:
+                # Show backend rejection without local fallback
+                detail = None
+                try:
+                    detail = response.json()
+                except Exception:
+                    pass
+                msg = detail if isinstance(detail, str) else (
+                    (detail.get("detail") if isinstance(detail, dict) else None)
+                )
+                raise RuntimeError(msg or "Document rejected by backend (422)")
             else:
-                # Fallback to local processing if API fails
-                return process_contract_local_fallback(uploaded_file, user_email, progress_bar, status_text)
+                # Propagate non-OK status to UI
+                raise RuntimeError(f"Backend error: HTTP {response.status_code}")
                 
         except requests.exceptions.RequestException as e:
             st.warning(f"HF Space API unavailable: {e}")
-            # Fallback to local processing
-            return process_contract_local_fallback(uploaded_file, user_email, progress_bar, status_text)
+            return {'success': False, 'error': str(e)}
         
         # Stage 3: Processing results
         status_text.text("Stage 3: Processing AI analysis results...")
