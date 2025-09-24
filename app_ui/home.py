@@ -15,7 +15,7 @@ HF_API_BASE = "https://vinabi-pactify.hf.space"
 LOCAL_API_BASE = "http://127.0.0.1:8080"
 
 # Try HF Space first, fallback to local
-API_BASE_URL = LOCAL_API_BASE
+API_BASE_URL = HF_API_BASE
 
 # API-FIRST APPROACH - Minimal local imports for cloud deployment
 LOCAL_PROCESSING_AVAILABLE = False  # Force API-only mode for cloud
