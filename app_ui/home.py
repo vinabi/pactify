@@ -14,13 +14,8 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 # API Configuration - Cloud-first: use HF Space backend
 HF_API_BASE = "https://vinabi-pactify.hf.space"
-LOCAL_API_BASE = "http://127.0.0.1:8080"
 
-# In cloud, always use HF Space backend
 API_BASE_URL = HF_API_BASE
-
-# API-FIRST APPROACH - Minimal local imports for cloud deployment
-LOCAL_PROCESSING_AVAILABLE = False  # Force API-only mode for cloud
 
 import asyncio
 
@@ -642,23 +637,39 @@ def map_to_dashboard_category(red_flag_category: str) -> str:
     return mapping.get(red_flag_category.lower(), 'missing_provisions')
 
 def call_api(files, params):
-    """Request helper for /review_pipeline with robust error surfacing."""
+    """
+    Request helper for /review_pipeline with robust error surfacing.
+    Returns a tuple: (status_label, payload)
+     - status_label in {'ok', 'rejected', 'error', 'timeout', 'network_error'}
+     - payload is dict or string with details
+    """
     try:
         r = requests.post(f"{API_BASE_URL}/review_pipeline", files=files, params=params, timeout=60)
         if r.status_code == 200:
-            return True, r.json()
-        else:
-            # surface backend message instead of generic fallback
+            try:
+                return "ok", r.json()
+            except Exception:
+                return "ok", r.text
+        elif r.status_code == 422:
+            # HF/your backend rejected the document — parse detail if present
             try:
                 detail = r.json()
-                msg = (detail.get("detail") if isinstance(detail, dict) else None) or r.text
             except Exception:
-                msg = r.text
-            return False, f"{r.status_code}: {msg}"
+                detail = r.text
+            # return explicit 'rejected' label so caller can decide soft vs hard rejection
+            return "rejected", detail
+        else:
+            try:
+                detail = r.json()
+            except Exception:
+                detail = r.text
+            return "error", {"status_code": r.status_code, "detail": detail}
     except requests.Timeout:
-        return False, "Timeout contacting backend"
+        return "timeout", "Timeout contacting backend"
     except requests.RequestException as e:
-        return False, f"Network error: {e}"
+        return "network_error", str(e)
+    except Exception as e:
+        return "error", str(e)
 
 def process_contract_via_api(uploaded_file, user_email: str):
     """Process contract via HF Space API endpoint"""
@@ -691,76 +702,81 @@ def process_contract_via_api(uploaded_file, user_email: str):
             "strict_mode": "false"
         }
         
-        ok, payload = call_api(files, params)
-        if not ok:
-            st.error(f"API processing failed: {payload}")
-            return {'success': False, 'error': f"API processing failed: {payload}"}
-        api_result = payload
-        
-        # Stage 3: Processing results
-        status_text.text("Stage 3: Processing AI analysis results...")
-        progress_bar.progress(60)
-        time.sleep(0.5)
-        
-        # Stage 4: Categorizing for dashboard
-        status_text.text("Stage 4: Categorizing risks for dashboard...")
-        progress_bar.progress(80)
-        time.sleep(0.5)
-        
-        # Convert API response to dashboard format
-        analysis_results = convert_api_response_to_dashboard(api_result)
-        
-        # Stage 5: Complete
-        status_text.text("Analysis complete!")
-        progress_bar.progress(100)
-        time.sleep(0.5)
-        
-        # Clear progress indicators
-        progress_bar.empty()
-        status_text.empty()
-        
-        # Create result object
-        result = {
-            'filename': uploaded_file.name,
-            'contract_type': api_result.get('contract_type', 'Legal Document'),
-            'recommendation': api_result.get('recommendation', 'REVIEW'),
-            'risk_score': api_result.get('risk_score', 50),
-            'red_flags': [],  # Will be populated from API
-            'critical_issues': api_result.get('critical_issues', []),
-            'processing_time_seconds': api_result.get('processing_time', 2.0),
-            'executive_summary': f"""
-CONTRACT ANALYSIS VIA HF SPACE AI
+        status, payload = call_api(files, params)
 
-RECOMMENDATION: {api_result.get('recommendation', 'REVIEW')}
-Risk Score: {api_result.get('risk_score', 50)}/100
+        # Robust handling of API outcomes
+        if status == "rejected":
+            # Try to get a clear rejection_reason string
+            rejection_reason = ""
+            if isinstance(payload, dict):
+                # common HF pattern might be: {"detail": "Rejected: ..."} or {"rejection_reason": "..."}
+                rejection_reason = payload.get("rejection_reason") or payload.get("detail") or str(payload)
+            else:
+                rejection_reason = str(payload)
 
-Processed via: {API_BASE_URL}
-Document: {uploaded_file.name}
-Type: {api_result.get('contract_type', 'Legal Document')}
+            rejection_reason_lower = rejection_reason.lower()
 
-Analysis completed with cloud AI backend.
-"""
-        }
-        
-        return {
-            'result': result,
-            'analysis_results': analysis_results,
-            'success': True,
-            'api_powered': True
-        }
-        
+            # Define hard non-legal indicators (do NOT proceed)
+            hard_non_legal_indicators = [
+                "not a legal", "not a contract", "academic", "assignment", "code files",
+                "python code", "resume", "cv", "invoice", "image only", "no text detected"
+            ]
+            # Define soft indicators where we can fallback to local/educational processing
+            soft_indicators = [
+                "insufficient joint evidence", "similarity", "essentials", "parties/signatures",
+                "length", "embedding", "vector store", "chroma", "cache", "download failed"
+            ]
+
+            is_hard_non_legal = any(token in rejection_reason_lower for token in hard_non_legal_indicators)
+            is_soft_rejection = any(token in rejection_reason_lower for token in soft_indicators)
+
+            # Logging/debugging: keep the raw payload in session_state for debugging
+            st.session_state.last_api_payload = payload
+            st.session_state.last_rejection_reason = rejection_reason
+
+            if is_hard_non_legal:
+                # Tell user to upload a real contract (hard block)
+                return {
+                    'success': False,
+                    'error': f"Document rejected as non-legal: {rejection_reason}"
+                }
+            elif is_soft_rejection:
+                # Soft rejection: backend had trouble (embedding/length) — fallback to educational analysis
+                # read file again safely (see note below about file pointer)
+                try:
+                    uploaded_file.seek(0)
+                except Exception:
+                    pass
+                file_bytes = uploaded_file.read() if hasattr(uploaded_file, 'read') else uploaded_file.getvalue()
+                text = None
+                try:
+                    text = file_bytes.decode('utf-8', errors='ignore')
+                except Exception:
+                    text = str(file_bytes)[:1000]
+
+                # call educational fallback that also sends email
+                detection_details = {'confidence': 'low', 'score': 0, 'legal_indicators': []}
+                return handle_educational_analysis(uploaded_file, user_email, text, detection_details)
+
+            else:
+                # Unknown rejection reason — surface to user but also provide fallback option
+                return {
+                    'success': False,
+                    'error': f"API rejected document: {rejection_reason} (you can retry or use override options)"
+                }
+
+        elif status == "ok":
+            api_result = payload
+        else:
+            # status in {'error','timeout','network_error'}
+            return {'success': False, 'error': f"API processing failed ({status}): {payload}"}
     except Exception as e:
-        st.error(f"API processing failed: {str(e)}")
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': f"Unexpected error: {e}"}
 
 def process_contract_local_fallback(uploaded_file, user_email: str, progress_bar, status_text):
     """Lightweight fallback processing for Streamlit-only deployment"""
     
-    if not LOCAL_PROCESSING_AVAILABLE:
-        return {
-            'success': False,
-            'error': 'Cloud API unavailable and local processing not configured. Please try again later.'
-        }
+    # Fallback removed
     
     try:
         # Stage 3: Local analysis
@@ -1272,9 +1288,7 @@ def main():
             st.info(f"**Primary Backend**: HF Space AI")
             st.code(f"Endpoint: {HF_API_BASE}")
             
-        with col2:
-            st.info(f"**Fallback**: Local Processing")
-            st.code("Available: " + ("Yes" if LOCAL_PROCESSING_AVAILABLE else "No"))
+        # Fallback removed
         
         st.markdown("#### System Integration")
         st.success("▣ Frontend: Streamlit Cloud (pactify.streamlit.app)")
@@ -1290,7 +1304,6 @@ def main():
                     st.error(f"HF Space returned status: {test_response.status_code}")
             except Exception as e:
                 st.error(f"HF Space connection failed: {e}")
-                st.info("Will fallback to local processing if available")
 
 if __name__ == "__main__":
     main()
