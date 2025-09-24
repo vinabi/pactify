@@ -23,6 +23,8 @@ def api_health(base: str) -> str:
 
 st.sidebar.caption(f"API: {API_BASE_URL} | health: {api_health(API_BASE_URL)}")
 
+LOCAL_PROCESSING_AVAILABLE = False
+
 import asyncio
 
 # Page configuration
