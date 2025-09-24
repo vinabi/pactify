@@ -156,7 +156,7 @@ def render_header():
         st.markdown('<div class="project-breadcrumb">Contract Analysis MultiAgent</div>', unsafe_allow_html=True)
     
     with col2:
-        st.markdown('<h1 style="text-align: center; margin: 0;">𓍝ᝰ.ᐟPactify</h1>', unsafe_allow_html=True)
+        st.markdown('<h1 style="text-align: center; margin: 0;">𓍝Pactifyᝰ.ᐟ</h1>', unsafe_allow_html=True)
     
     with col3:
         st.markdown("")  # Empty space, no export button
