@@ -18,7 +18,7 @@ LOCAL_API_BASE = "http://127.0.0.1:8080"
 API_BASE_URL = HF_API_BASE
 
 # API-FIRST APPROACH - Minimal local imports for cloud deployment
-LOCAL_PROCESSING_AVAILABLE = False  # Force API-only mode for cloud
+LOCAL_PROCESSING_AVAILABLE = HF_API_BASE  # Force API-only mode for cloud
 
 import asyncio
 
