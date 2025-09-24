@@ -8,7 +8,6 @@ def get_chroma(persist_dir: str):
     client = chromadb.PersistentClient(path=persist_dir)
     return client
 
-
 def ensure_precedent_collection(client, name="precedents"):
     ef = embedding_functions.SentenceTransformerEmbeddingFunction(
         model_name="all-MiniLM-L6-v2"
