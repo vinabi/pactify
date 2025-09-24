@@ -203,6 +203,11 @@ def render_upload_zone():
 def render_analysis_cards(analysis_results: Optional[Dict] = None):
     """Render the analysis result cards in pairs"""
     
+    # Don't show cards if no analysis results
+    if not analysis_results:
+        st.info("Upload a legal document to see analysis results")
+        return
+    
     # Create 3 rows of 2 columns each for pairs
     for i in range(0, len(RISK_CATEGORIES), 2):
         col1, col2 = st.columns(2)
@@ -694,15 +699,9 @@ def process_contract_via_api(uploaded_file, user_email: str):
         
         status, payload = call_api(files, params)
 
-        # Handle API outcomes - let backend decide everything
+        # Simple logic: if API rejects, stop working
         if status == "rejected":
-            # API rejected the document - show the rejection reason
-            rejection_reason = ""
-            if isinstance(payload, dict):
-                rejection_reason = payload.get("rejection_reason") or payload.get("detail") or str(payload)
-            else:
-                rejection_reason = str(payload)
-            
+            rejection_reason = str(payload) if not isinstance(payload, dict) else payload.get("detail", str(payload))
             return {
                 'success': False,
                 'error': f"Document rejected: {rejection_reason}"
@@ -1262,16 +1261,17 @@ def main():
                         error_msg = process_result.get('error', 'Analysis failed')
                         st.error(error_msg)
                         
-                        # Store info for potential override
+                        # Clear analysis results when document is rejected
+                        st.session_state.analysis_results = None
+                        st.session_state.last_analysis = None
+                        
+                        # Store rejection info
                         if uploaded_file:
                             try:
                                 file_bytes = uploaded_file.read() if hasattr(uploaded_file, 'read') else uploaded_file.getvalue()
                                 text = file_bytes.decode('utf-8', errors='ignore')
                                 st.session_state.last_upload_text = text
                                 st.session_state.last_rejection_reason = error_msg
-                                
-                                # Skip override in API-only mode
-                                pass
                             except:
                                 pass
                     
