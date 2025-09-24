@@ -178,10 +178,10 @@ def render_header():
     col1, col2, col3 = st.columns([2, 4, 2])
     
     with col1:
-        st.markdown('<div class="project-breadcrumb">All projects > Contract Analysis</div>', unsafe_allow_html=True)
+        st.markdown('<div class="project-breadcrumb">Contract Analysis MultiAgent</div>', unsafe_allow_html=True)
     
     with col2:
-        st.markdown('<h1 style="text-align: center; margin: 0;">Contract Analyzer</h1>', unsafe_allow_html=True)
+        st.markdown('<h1 style="text-align: center; margin: 0;">🏛 Pactify</h1>', unsafe_allow_html=True)
     
     with col3:
         st.markdown("")  # Empty space, no export button
@@ -641,6 +641,25 @@ def map_to_dashboard_category(red_flag_category: str) -> str:
     
     return mapping.get(red_flag_category.lower(), 'missing_provisions')
 
+def call_api(files, params):
+    """Request helper for /review_pipeline with robust error surfacing."""
+    try:
+        r = requests.post(f"{API_BASE_URL}/review_pipeline", files=files, params=params, timeout=60)
+        if r.status_code == 200:
+            return True, r.json()
+        else:
+            # surface backend message instead of generic fallback
+            try:
+                detail = r.json()
+                msg = (detail.get("detail") if isinstance(detail, dict) else None) or r.text
+            except Exception:
+                msg = r.text
+            return False, f"{r.status_code}: {msg}"
+    except requests.Timeout:
+        return False, "Timeout contacting backend"
+    except requests.RequestException as e:
+        return False, f"Network error: {e}"
+
 def process_contract_via_api(uploaded_file, user_email: str):
     """Process contract via HF Space API endpoint"""
     
@@ -672,35 +691,11 @@ def process_contract_via_api(uploaded_file, user_email: str):
             "strict_mode": "false"
         }
         
-        try:
-            # Call HF Space API
-            response = requests.post(
-                f"{API_BASE_URL}/review_pipeline",
-                files=files,
-                params=params,
-                timeout=120
-            )
-            
-            if response.status_code == 200:
-                api_result = response.json()
-            elif response.status_code == 422:
-                # Show backend rejection without local fallback
-                detail = None
-                try:
-                    detail = response.json()
-                except Exception:
-                    pass
-                msg = detail if isinstance(detail, str) else (
-                    (detail.get("detail") if isinstance(detail, dict) else None)
-                )
-                raise RuntimeError(msg or "Document rejected by backend (422)")
-            else:
-                # Propagate non-OK status to UI
-                raise RuntimeError(f"Backend error: HTTP {response.status_code}")
-                
-        except requests.exceptions.RequestException as e:
-            st.warning(f"HF Space API unavailable: {e}")
-            return {'success': False, 'error': str(e)}
+        ok, payload = call_api(files, params)
+        if not ok:
+            st.error(f"API processing failed: {payload}")
+            return {'success': False, 'error': f"API processing failed: {payload}"}
+        api_result = payload
         
         # Stage 3: Processing results
         status_text.text("Stage 3: Processing AI analysis results...")
