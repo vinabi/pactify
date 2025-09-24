@@ -1,4 +1,4 @@
-# app_ui/dashboard.py - EXACT REPLICA OF CONTRACT ANALYSIS DASHBOARD
+# app_ui/dashboard.py 
 import streamlit as st
 import requests
 import re
@@ -22,7 +22,7 @@ import asyncio
 # Page configuration
 st.set_page_config(
     page_title="Pactify",
-    page_icon="✍︎",
+    page_icon="⚖️",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -156,7 +156,7 @@ def render_header():
         st.markdown('<div class="project-breadcrumb">Contract Analysis MultiAgent</div>', unsafe_allow_html=True)
     
     with col2:
-        st.markdown('<h1 style="text-align: center; margin: 0;">𓍝Pactifyᝰ.ᐟ</h1>', unsafe_allow_html=True)
+        st.markdown('<h1 style="text-align: center; margin: 0;">𓂃🖊Pactifyᝰ.ᐟ</h1>', unsafe_allow_html=True)
     
     with col3:
         st.markdown("")  # Empty space, no export button
