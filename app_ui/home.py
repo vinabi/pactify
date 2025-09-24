@@ -6,19 +6,22 @@ from typing import Dict, List, Any, Optional
 import json
 from pathlib import Path
 import sys
+import os, requests, streamlit as st
 
 # Add project root for imports
 sys.path.append(str(Path(__file__).parent.parent))
 
-# API Configuration - Use HF Space as backend
 HF_API_BASE = "https://vinabi-pactify.hf.space"
-LOCAL_API_BASE = "http://localhost:8080"
+API_BASE_URL = os.getenv("API_BASE_URL", HF_API_BASE)
 
-# Try HF Space first, fallback to local
-API_BASE_URL = HF_API_BASE
+def api_health(base: str) -> str:
+    try:
+        r = requests.get(f"{base}/healthz", timeout=6)
+        return f"OK {r.status_code}: {r.text[:200]}"
+    except Exception as e:
+        return f"FAIL: {e}"
 
-# API-FIRST APPROACH - Minimal local imports for cloud deployment
-LOCAL_PROCESSING_AVAILABLE = False  # Force API-only mode for cloud
+st.sidebar.caption(f"API: {API_BASE_URL} | health: {api_health(API_BASE_URL)}")
 
 import asyncio
 
