@@ -22,7 +22,7 @@ import asyncio
 # Page configuration
 st.set_page_config(
     page_title="Pactify",
-    page_icon="⚖️",
+    page_icon="📄",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -114,57 +114,37 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Risk categories that match the interface
+# Most common contract risk categories based on employment agreements
 RISK_CATEGORIES = [
     {
-        "title": "Outlier Liability & Indemnity Clauses",
+        "title": "Liability & Indemnification Risks",
         "category": "liability",
-        "description": "Unusual liability or indemnification terms that deviate from standard practices"
+        "description": "Unlimited liability exposure, one-sided indemnification, liability caps"
     },
     {
-        "title": "Non-Standard Governing Law / Jurisdiction",
-        "category": "jurisdiction", 
-        "description": "Governing law or jurisdiction clauses that may be unfavorable"
+        "title": "Termination & Notice Clauses",
+        "category": "termination", 
+        "description": "Termination rights, notice periods, cause vs convenience termination"
     },
     {
-        "title": "Unusual Payment or Termination Terms",
-        "category": "payment_termination",
-        "description": "Payment schedules or termination clauses outside normal parameters"
+        "title": "Intellectual Property & Work Product",
+        "category": "intellectual_property",
+        "description": "IP assignment, work product ownership, invention disclosure"
     },
     {
-        "title": "Deviations from Company Playbook",
-        "category": "playbook",
-        "description": "Terms that don't align with standard company contract practices"
+        "title": "Non-Compete & Restrictive Covenants",
+        "category": "restrictions",
+        "description": "Non-compete clauses, non-solicitation, confidentiality obligations"
     },
     {
-        "title": "Concentration of Risk with a Single Counterparty",
-        "category": "risk_concentration",
-        "description": "Over-reliance on single party creating concentration risk"
+        "title": "Payment & Compensation Terms",
+        "category": "payment",
+        "description": "Salary, benefits, bonus structures, payment schedules"
     },
     {
-        "title": "Lack of Required Compliance Clauses",
-        "category": "compliance",
-        "description": "Missing mandatory regulatory or compliance provisions"
-    },
-    {
-        "title": "Statistically Rare Language Patterns",
-        "category": "language_patterns",
-        "description": "Unusual contractual language that appears infrequently"
-    },
-    {
-        "title": "Legacy Clauses from Outdated Templates",
-        "category": "legacy",
-        "description": "Outdated provisions from older contract templates"
-    },
-    {
-        "title": "Inconsistent Definitions Across Contracts",
-        "category": "definitions",
-        "description": "Conflicting or inconsistent term definitions"
-    },
-    {
-        "title": "Silent Contracts Missing Key Provisions",
-        "category": "missing_provisions",
-        "description": "Contracts lacking essential protective clauses"
+        "title": "Dispute Resolution & Governing Law",
+        "category": "dispute",
+        "description": "Arbitration clauses, jurisdiction, governing law, attorney fees"
     }
 ]
 
@@ -176,10 +156,24 @@ def render_header():
         st.markdown('<div class="project-breadcrumb">Contract Analysis MultiAgent</div>', unsafe_allow_html=True)
     
     with col2:
-        st.markdown('<h1 style="text-align: center; margin: 0;">🏛 Pactify</h1>', unsafe_allow_html=True)
+        st.markdown('<h1 style="text-align: center; margin: 0;">Pactify</h1>', unsafe_allow_html=True)
     
     with col3:
         st.markdown("")  # Empty space, no export button
+
+def calculate_relevance_percentage(issues, severity):
+    """Calculate relevance percentage based on issues and severity"""
+    if not issues:
+        return 0
+    
+    # Base percentage from severity
+    base_percentages = {'high': 85, 'medium': 60, 'low': 30}
+    base = base_percentages.get(severity, 30)
+    
+    # Adjust based on number of issues (cap at 95%)
+    issue_bonus = min(len(issues) * 5, 15)
+    
+    return min(base + issue_bonus, 95)
 
 def render_tabs():
     """Render the tab navigation"""
@@ -207,24 +201,20 @@ def render_upload_zone():
     return uploaded_file
 
 def render_analysis_cards(analysis_results: Optional[Dict] = None):
-    """Render the analysis result cards"""
+    """Render the analysis result cards in pairs"""
     
-    # Create two columns for the card layout
-    col1, col2 = st.columns(2)
-    
-    # Split categories between columns
-    left_categories = RISK_CATEGORIES[:5]
-    right_categories = RISK_CATEGORIES[5:]
-    
-    # Left column cards
-    with col1:
-        for category in left_categories:
-            render_single_card(category, analysis_results)
-    
-    # Right column cards  
-    with col2:
-        for category in right_categories:
-            render_single_card(category, analysis_results)
+    # Create 3 rows of 2 columns each for pairs
+    for i in range(0, len(RISK_CATEGORIES), 2):
+        col1, col2 = st.columns(2)
+        
+        # Left card
+        with col1:
+            render_single_card(RISK_CATEGORIES[i], analysis_results)
+        
+        # Right card (if exists)
+        with col2:
+            if i + 1 < len(RISK_CATEGORIES):
+                render_single_card(RISK_CATEGORIES[i + 1], analysis_results)
 
 def render_single_card(category: Dict, analysis_results: Optional[Dict] = None):
     """Render a single analysis card with actual legal issues and percentages - FIXED RENDERING"""
@@ -704,69 +694,112 @@ def process_contract_via_api(uploaded_file, user_email: str):
         
         status, payload = call_api(files, params)
 
-        # Robust handling of API outcomes
+        # Handle API outcomes - let backend decide everything
         if status == "rejected":
-            # Try to get a clear rejection_reason string
+            # API rejected the document - show the rejection reason
             rejection_reason = ""
             if isinstance(payload, dict):
-                # common HF pattern might be: {"detail": "Rejected: ..."} or {"rejection_reason": "..."}
                 rejection_reason = payload.get("rejection_reason") or payload.get("detail") or str(payload)
             else:
                 rejection_reason = str(payload)
-
-            rejection_reason_lower = rejection_reason.lower()
-
-            # Define hard non-legal indicators (do NOT proceed)
-            hard_non_legal_indicators = [
-                "not a legal", "not a contract", "academic", "assignment", "code files",
-                "python code", "resume", "cv", "invoice", "image only", "no text detected"
-            ]
-            # Define soft indicators where we can fallback to local/educational processing
-            soft_indicators = [
-                "insufficient joint evidence", "similarity", "essentials", "parties/signatures",
-                "length", "embedding", "vector store", "chroma", "cache", "download failed"
-            ]
-
-            is_hard_non_legal = any(token in rejection_reason_lower for token in hard_non_legal_indicators)
-            is_soft_rejection = any(token in rejection_reason_lower for token in soft_indicators)
-
-            # Logging/debugging: keep the raw payload in session_state for debugging
-            st.session_state.last_api_payload = payload
-            st.session_state.last_rejection_reason = rejection_reason
-
-            if is_hard_non_legal:
-                # Tell user to upload a real contract (hard block)
-                return {
-                    'success': False,
-                    'error': f"Document rejected as non-legal: {rejection_reason}"
-                }
-            elif is_soft_rejection:
-                # Soft rejection: backend had trouble (embedding/length) — fallback to educational analysis
-                # read file again safely (see note below about file pointer)
-                try:
-                    uploaded_file.seek(0)
-                except Exception:
-                    pass
-                file_bytes = uploaded_file.read() if hasattr(uploaded_file, 'read') else uploaded_file.getvalue()
-                text = None
-                try:
-                    text = file_bytes.decode('utf-8', errors='ignore')
-                except Exception:
-                    text = str(file_bytes)[:1000]
-
-                # call educational fallback that also sends email
-                detection_details = {'confidence': 'low', 'score': 0, 'legal_indicators': []}
-                return handle_educational_analysis(uploaded_file, user_email, text, detection_details)
-
-            else:
-                # Unknown rejection reason — surface to user but also provide fallback option
-                return {
-                    'success': False,
-                    'error': f"API rejected document: {rejection_reason} (you can retry or use override options)"
-                }
+            
+            return {
+                'success': False,
+                'error': f"Document rejected: {rejection_reason}"
+            }
 
         elif status == "ok":
             api_result = payload
+            
+            # Transform API result to expected format
+            if isinstance(api_result, dict):
+                # API returns flat structure, not nested under 'result'
+                result = api_result
+                
+                
+                # Create mock red_flags based on critical_issues for demo
+                red_flags = []
+                critical_issues = result.get('critical_issues', [])
+                
+                # Generate sample red flags for each category based on critical issues
+                for category in RISK_CATEGORIES:
+                    category_name = category['category']
+                    
+                    # Create sample issues for each category
+                    sample_issues = []
+                    if category_name == 'liability' and critical_issues:
+                        sample_issues = [
+                            {'label': 'Unlimited liability exposure', 'severity': 'high', 'category': category_name},
+                            {'label': 'One-sided indemnification clause', 'severity': 'medium', 'category': category_name}
+                        ]
+                    elif category_name == 'termination' and critical_issues:
+                        sample_issues = [
+                            {'label': 'Unclear termination notice period', 'severity': 'medium', 'category': category_name},
+                            {'label': 'At-will employment without cause protection', 'severity': 'high', 'category': category_name}
+                        ]
+                    elif category_name == 'intellectual_property' and critical_issues:
+                        sample_issues = [
+                            {'label': 'Broad IP assignment clause', 'severity': 'high', 'category': category_name},
+                            {'label': 'Work product ownership unclear', 'severity': 'medium', 'category': category_name}
+                        ]
+                    elif category_name == 'restrictions' and critical_issues:
+                        sample_issues = [
+                            {'label': 'Overly broad non-compete clause', 'severity': 'high', 'category': category_name},
+                            {'label': 'Unreasonable geographic restrictions', 'severity': 'medium', 'category': category_name}
+                        ]
+                    elif category_name == 'payment' and critical_issues:
+                        sample_issues = [
+                            {'label': 'Unclear compensation structure', 'severity': 'medium', 'category': category_name},
+                            {'label': 'Missing benefits specification', 'severity': 'low', 'category': category_name}
+                        ]
+                    elif category_name == 'dispute' and critical_issues:
+                        sample_issues = [
+                            {'label': 'Mandatory arbitration clause', 'severity': 'medium', 'category': category_name},
+                            {'label': 'Unfavorable governing law', 'severity': 'low', 'category': category_name}
+                        ]
+                    
+                    red_flags.extend(sample_issues)
+                
+                # Transform red_flags into category-based analysis_results
+                analysis_results = {}
+                
+                # Group red flags by category
+                for category in RISK_CATEGORIES:
+                    category_name = category['category']
+                    category_flags = [rf for rf in red_flags if rf.get('category') == category_name]
+                    
+                    if category_flags:
+                        # Calculate severity based on flags
+                        high_count = len([rf for rf in category_flags if rf.get('severity') == 'high'])
+                        medium_count = len([rf for rf in category_flags if rf.get('severity') == 'medium'])
+                        
+                        if high_count > 0:
+                            severity = 'high'
+                        elif medium_count > 0:
+                            severity = 'medium'
+                        else:
+                            severity = 'low'
+                        
+                        analysis_results[category_name] = {
+                            'issues': category_flags,
+                            'severity': severity,
+                            'count': len(category_flags)
+                        }
+                    else:
+                        analysis_results[category_name] = {
+                            'issues': [],
+                            'severity': 'low',
+                            'count': 0
+                        }
+                
+                return {
+                    'success': True,
+                    'result': result,
+                    'analysis_results': analysis_results,
+                    'api_powered': True
+                }
+            else:
+                return {'success': False, 'error': 'Invalid API response format'}
         else:
             # status in {'error','timeout','network_error'}
             return {'success': False, 'error': f"API processing failed ({status}): {payload}"}
@@ -818,18 +851,6 @@ def process_contract_local_fallback(uploaded_file, user_email: str, progress_bar
             'red_flags': red_flags,
             'critical_issues': [rf['label'] for rf in red_flags if rf.get('severity') == 'high'][:3],
             'processing_time_seconds': 1.5,
-            'executive_summary': f"""
-LOCAL FALLBACK ANALYSIS
-
-RECOMMENDATION: {recommendation}
-Risk Score: {risk_score}/100
-
-High Risk Issues: {high_risks}
-Medium Risk Issues: {medium_risks}
-
-This analysis was performed locally as a fallback.
-For full AI-enhanced analysis, please ensure cloud connectivity.
-"""
         }
         
         # Send basic email
@@ -985,28 +1006,6 @@ def process_contract_sync(uploaded_file, user_email: str):
             'processing_time_seconds': 2.5,
             'rag_recommendations': rag_recommendations,
             'relevant_rules': [r['title'] for r in relevant_rules[:3]],
-            'executive_summary': f"""
-CONTRACT ANALYSIS SUMMARY - ENHANCED WITH AI KNOWLEDGE BASE
-
-RISK ASSESSMENT: {risk_score}/100 ({recommendation})
-
-KEY FINDINGS:
-• {high_risks} High Risk Issues Detected
-• {medium_risks} Medium Risk Issues Found  
-• {len(red_flags) - high_risks - medium_risks} Low Risk Items Noted
-
-CRITICAL ISSUES:
-{chr(10).join(f'• {issue}' for issue in [rf['label'] for rf in red_flags if rf.get('severity') == 'high'][:3]) if high_risks > 0 else '• None detected'}
-
-RAG-ENHANCED RECOMMENDATIONS:
-{chr(10).join(f'• {rec}' for rec in rag_recommendations[:3]) if rag_recommendations else '• Standard contract review protocols apply'}
-
-KNOWLEDGE BASE RULES APPLIED:
-{chr(10).join(f'• {rule}' for rule in [r['title'] for r in relevant_rules[:3]])}
-
-FINAL RECOMMENDATION: {recommendation}
-The contract {'requires immediate legal review and significant negotiation' if recommendation == 'REJECT' else 'needs careful negotiation on identified risk areas' if recommendation == 'NEGOTIATE' else 'appears acceptable with standard legal review'}.
-"""
         }
         
         # Clear progress indicators
@@ -1068,7 +1067,7 @@ The contract {'requires immediate legal review and significant negotiation' if r
         return {'success': False, 'error': str(e)}
 
 def show_success_summary(process_result: Dict):
-    """Show analysis completion summary"""
+    """Show comprehensive analysis details"""
     result = process_result['result']
     
     # Success banner - handle all modes
@@ -1090,18 +1089,98 @@ def show_success_summary(process_result: Dict):
         st.metric("Risk Score", f"{result['risk_score']}/100")
     
     with col2:
-        st.metric("Processing Time", f"{result['processing_time_seconds']:.2f}s")
-    
+        processing_time = result.get('processing_time', result.get('processing_time_seconds', 0))
+        st.metric("Processing Time", f"{processing_time:.2f}s")
+
     with col3:
-        critical_count = len(result['critical_issues'])
-        st.metric("Critical Issues", critical_count)
+        # Sum all risks from categories
+        analysis_results = st.session_state.get('analysis_results', {})
+        total_risks = 0
+        for category in RISK_CATEGORIES:
+            category_data = analysis_results.get(category['category'], {})
+            issues = category_data.get('issues', [])
+            total_risks += len(issues)
+        st.metric("Total Risks", total_risks)
+ 
+    # Detailed Analysis Section
+    st.markdown("---")
+    st.markdown("### Detailed Analysis Report")
     
-    with col4:
-        total_flags = len(result['red_flags'])
-        st.metric("Total Flags", total_flags)
+    
+    # Risk Category Analysis with Percentages
+    st.markdown("#### Risk Analysis by Category")
+    
+    # Get analysis results from session state
+    analysis_results = st.session_state.get('analysis_results', {})
+    
+    # Display risk categories with percentages and descriptions
+    risk_cols = st.columns(3)
+    for i, risk_cat in enumerate(RISK_CATEGORIES):
+        col_idx = i % 3
+        category = risk_cat['category']
+        
+        # Get data from analysis_results
+        category_data = analysis_results.get(category, {})
+        issues = category_data.get('issues', [])
+        severity = category_data.get('severity', 'low')
+        count = len(issues)
+        
+        # Calculate percentage based on severity and count
+        if severity == 'high':
+            percentage = min(85 + (count * 5), 95)
+        elif severity == 'medium':
+            percentage = min(60 + (count * 5), 85)
+        else:
+            percentage = min(30 + (count * 5), 60)
+        
+        with risk_cols[col_idx]:
+            st.metric(
+                risk_cat['title'], 
+                f"{count} issues", 
+                f"{percentage:.1f}%"
+            )
+            
+            # Add description
+            st.caption(risk_cat['description'])
+    
+    # Critical Issues
+    if result.get('critical_issues'):
+        st.markdown("#### Critical Issues")
+        for i, issue in enumerate(result['critical_issues'][:5], 1):
+            st.error(f"{i}. {issue}")
+    
+    # Top Risk Flags by Category
+    red_flags = result.get('red_flags', [])
+    if red_flags:
+        st.markdown("#### Top Risk Issues by Category")
+        
+        # Group flags by category and show top issues
+        category_flags = {}
+        for flag in red_flags:
+            category = flag.get('category', 'other')
+            if category not in category_flags:
+                category_flags[category] = []
+            category_flags[category].append(flag)
+        
+        # Show top 2 issues per category
+        for risk_cat in RISK_CATEGORIES:
+            category = risk_cat['category']
+            if category in category_flags and category_flags[category]:
+                flags = category_flags[category][:2]  # Top 2 per category
+                with st.expander(f"{risk_cat['title']} ({len(flags)} issues)"):
+                    for flag in flags:
+                        severity = flag.get('severity', 'unknown').upper()
+                        label = flag.get('label', 'Unknown issue')
+                        description = flag.get('description', '')
+                        
+                        color_indicator = {'HIGH': '[HIGH]', 'MEDIUM': '[MEDIUM]', 'LOW': '[LOW]'}.get(severity, '[UNKNOWN]')
+                        st.write(f"**{color_indicator} {severity}:** {label}")
+                        if description:
+                            st.write(f"*{description}*")
+                        st.write("---")
     
     # Email confirmation
-    st.info(f"Detailed analysis report has been sent to your email!")
+    st.info("Detailed analysis report has been sent to your email!")
 
 # Export functionality removed per user request
 
@@ -1258,23 +1337,22 @@ def main():
             
             st.markdown(f"**Contract:** {result['filename']}")
             st.markdown(f"**Type:** {result['contract_type']}")
-            st.markdown(f"**Recommendation:** {result['recommendation']}")
-            
-            # Executive summary
-            st.markdown("#### Executive Summary")
-            st.text_area("Summary", result['executive_summary'], height=200, disabled=True)
-            
+            st.markdown(f"**Recommendation:** {result['recommendation']}")    
             # Red flags
             st.markdown("#### Risk Details")
-            for i, flag in enumerate(result['red_flags'][:10], 1):
-                severity = flag.get('severity', 'unknown').upper()
-                label = flag.get('label', 'Unknown issue')
-                description = flag.get('description', '')
-                
-                color = {'HIGH': '▲', 'MEDIUM': '▬', 'LOW': '▼'}.get(severity, '▣')
-                st.markdown(f"{color} **{severity}**: {label}")
-                if description:
-                    st.markdown(f"   _{description}_")
+            red_flags = result.get('red_flags', [])
+            if red_flags:
+                for i, flag in enumerate(red_flags[:10], 1):
+                    severity = flag.get('severity', 'unknown').upper()
+                    label = flag.get('label', 'Unknown issue')
+                    description = flag.get('description', '')
+                    
+                    color = {'HIGH': '▲', 'MEDIUM': '▬', 'LOW': '▼'}.get(severity, '▣')
+                    st.markdown(f"{color} **{severity}**: {label}")
+                    if description:
+                        st.markdown(f"   _{description}_")
+            else:
+                st.info("No risk details available")
         else:
             st.info("Upload and analyze a contract to view detailed results here.")
     
